@@ -11,10 +11,12 @@
     <!-- ChromeDriver bundled for local runs; in CI WebDriverManager downloads the correct version automatically -->
     <PackageReference Include="Selenium.WebDriver.ChromeDriver" Version="114.0.5735.9000" />
     <!-- WebDriverManager simplifies driver management -->
-    <PackageReference Include="WebDriverManager" Version="2.13.1" />
-    <!-- xUnit test framework and runner -->
-    <PackageReference Include="xunit" Version="2.4.2" />
+    
+            <PackageReference Include="WebDriverManager" Version="2.14.0" />
+    <PackageReerence Include="xunit" Version="2.4.2" Version
     <PackageReference Include="xunit.runner.visualstudio" Version="2.4.5" />
+                <PackageReference Include="AngleSharp" Version="0.17.1" />
+
     <!-- Code coverage collector for local runs (optional) -->
     <PackageReference Include="coverlet.collector" Version="3.2.0" />
   </ItemGroup>
