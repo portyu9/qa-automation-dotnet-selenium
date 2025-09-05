@@ -1,8 +1,6 @@
 using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
 using UiTests.PageObjects;
-using WebDriverManager;
-using WebDriverManager.DriverConfigs.Impl;
 using Xunit;
 
 namespace UiTests.Tests
