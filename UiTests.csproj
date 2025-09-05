@@ -8,7 +8,7 @@
 
   <ItemGroup>
     <!-- AngleSharp dependency to satisfy WebDriverManager -->
-    <PackageReference Include="AngleSharp" Version="1.1.2" />
+    <PackageReference Include="AngleSharp" Version="1.1.4" />
 
     <!-- Selenium WebDriver for browser automation -->
     <PackageReference Include="Selenium.WebDriver" Version="4.16.1" />
