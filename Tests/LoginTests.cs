@@ -2,7 +2,9 @@ using System;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
 using UiTests.PageObjects;
+using Newtonsoft.Json;
 using Xunit;
+
 
 namespace UiTests.Tests
 {
@@ -37,6 +39,8 @@ namespace UiTests.Tests
             // Navigate to login page and authenticate
             loginPage.Navigate();
             loginPage.Login("standard_user", "secret_sauce");
+
+        JsonConvert.SerializeObject(new { User = "standard_user" });
 
             // Assert we are redirected to the inventory page by checking the page load condition
             Assert.True(homePage.IsLoaded);
