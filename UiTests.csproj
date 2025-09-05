@@ -11,7 +11,9 @@
   <PackageReference Include="Selenium.WebDriver" Version="4.16.1" />
 
   <!-- ChromeDriver bundled for local runs -->
-  <PackageReference Include="Selenium.WebDriver.ChromeDriver" Version="115.0.5790.90800" />
+  <    <PackageReference Include="Selenium.WebDriver.ChromeDriver" Version="116.0.5845.9600" />
+    <!-- WebDriverManager simplifies driver management -->
+    <PackageReference Include="WebDriverManager" Version="2.17.6" />
 
   <!-- xUnit test framework -->
   <PackageReference Include="xunit" Version="2.4.2" />
