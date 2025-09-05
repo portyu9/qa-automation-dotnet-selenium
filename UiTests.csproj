@@ -4,20 +4,19 @@
     <TargetFramework>net7.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Ensure all referenced assemblies are copied locally -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- Selenium WebDriver packages for browser automation -->
     <PackageReference Include="Selenium.WebDriver" Version="4.16.1" />
-    <!-- ChromeDriver is provided automatically by Selenium Manager -->
-    
+    <!-- chromeDriver is provided automatically by Selenium Manager -->
+
     <!-- xUnit test framework -->
-    
-<PackageReference Include="xunit" Version="2.4.2" />
-<PackageReference Include="xunit.runner.visualstudio" Version="2.4.5" />
-<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-
-
+    <PackageReference Include="xunit" Version="2.4.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.4.5" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
 </Project>
