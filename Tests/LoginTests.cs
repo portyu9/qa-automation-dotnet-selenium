@@ -21,10 +21,7 @@ namespace UiTests.Tests
         private readonly HomePage homePage;
 
         public LoginTests()
-        {
-            // Ensure the appropriate driver binary is downloaded
-            new DriverManager().SetUpDriver(new ChromeConfig());
-
+        {         
             var options = new ChromeOptions();
             // Use the new headless mode which replicates full Chrome features
             options.AddArgument("--headless=new");
