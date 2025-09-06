@@ -3,7 +3,9 @@
     <!-- Target the latest long-term support .NET runtime -->
     <TargetFramework>net7.0</TargetFramework>
     <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
+
+    <SuppressTfmSupportBuildErrors>true</SuppressTfmSupportBuildErrors>
+<ImplicitUsings>enable</ImplicitUsings>
     <!-- Ensure all referenced assemblies are copied locally -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
