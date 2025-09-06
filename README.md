@@ -53,3 +53,6 @@ The foundation set up here makes it straightforward to grow the suite.  To add n
 ---
 
 I hope this example illustrates my approach to building clean, maintainable UI test frameworks in .NET.  Feel free to fork or adapt it to suit your own projects.
+
+
+> **Note:** This repository now includes a minor enhancement note added to demonstrate Quickdraw and YOLO achievements.
