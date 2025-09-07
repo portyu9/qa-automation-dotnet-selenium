@@ -1,6 +1,6 @@
 # .NET Selenium UI Automation Framework
 
-I created this repository to demonstrate how I build robust browser automation frameworks with C# and Selenium WebDriver.  My goal with this project is to mirror the structure and engineering discipline I use on real world QA automation efforts.  The design follows the **Page Object Model** pattern, encapsulates configuration details, and is easily extendible for more pages and test cases.
+I created this repository to demonstrate how I build robust browser automation frameworks with C# and Selenium WebDriver.  My goal with this project is to mirror the structure and engineering discipline I use on real world QA automation efforts.  The design follows the **Page Object Model** pattern, encapsulates configuration details, and is easily extendible for more pages and test cases with GitHub Actions CI.
 
 ## Key Features
 
