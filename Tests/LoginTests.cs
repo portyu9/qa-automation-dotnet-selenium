@@ -30,7 +30,9 @@ public sealed class LoginTests : IDisposable
             loginPage.Login("standard_user", "secret_sauce");
 
             Assert.True(homePage.IsLoaded);
-            Assert.StartsWith(homePage.PageUrl, session.Driver.Url, StringComparison.OrdinalIgnoreCase);
+            Assert.True(
+                session.Driver.Url.StartsWith(homePage.PageUrl, StringComparison.OrdinalIgnoreCase),
+                $"Expected URL to start with '{homePage.PageUrl}' but was '{session.Driver.Url}'.");
         });
     }
 
