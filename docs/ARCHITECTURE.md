@@ -6,7 +6,7 @@ The UI framework keeps user-flow intent separate from browser/session policy. Te
 
 ```mermaid
 flowchart LR
-    T[xUnit tests] --> S[BrowserTestSession]
+    T[xUnit v3 tests] --> S[BrowserTestSession]
     S --> C[TestSettings]
     S --> F[WebDriverFactory]
     T --> P[Page objects]
@@ -19,9 +19,17 @@ flowchart LR
 
 Tests must not instantiate `ChromeDriver`, `FirefoxDriver`, `EdgeDriver`, or `RemoteWebDriver` directly. `WebDriverFactory` is the single browser-construction boundary so local execution and Selenium Grid remain interchangeable.
 
+## Runtime and test-host contract
+
+The project targets .NET 8 and uses xUnit v3. `global.json` anchors SDK selection to the .NET 8 `8.0.400` feature band with latest-patch roll-forward. This is a framework invariant rather than a developer convenience: without an SDK constraint, a newer machine-wide SDK can silently change `dotnet test` and Microsoft.Testing.Platform behavior.
+
+The xUnit v3 project is an executable test project. CI currently invokes it through `dotnet test` plus `xunit.runner.visualstudio` so TRX and Coverlet output remain part of the operational evidence model. Test framework, adapter, SDK selection, and evidence collection therefore evolve as one reviewed execution contract.
+
 ## Configuration boundary
 
 `TestSettings.FromEnvironment()` converts process inputs into immutable typed state before browser creation.
+
+Production configuration reads process environment variables through the public zero-argument entry point. The parser itself also accepts an internal read-only variable lookup. Framework-contract tests use that lookup instead of calling `Environment.SetEnvironmentVariable`, preventing process-global test state from racing with parallel browser-test construction.
 
 `TEST_BASE_URL` and `SELENIUM_GRID_URL` must be absolute HTTP(S) URIs. Optional path prefixes are allowed; URL credentials, query strings, and fragments are rejected. Authentication belongs in an explicit browser/application authentication mechanism, not URL user-info.
 
@@ -86,6 +94,8 @@ Screenshots and page source may still contain application-visible synthetic data
 
 Each test owns an isolated driver. Static/shared `IWebDriver` instances are prohibited. Mutable application data must also be isolated before browser concurrency is enabled.
 
+Framework tests must not mutate process-global environment variables as temporary fixtures. Configuration contracts inject a variable lookup, which allows xUnit v3 parallelism to remain enabled without leaking one test's invalid configuration into another test's constructor.
+
 If a specific account or environment cannot support concurrent access, isolate the affected test collection rather than globally disabling xUnit parallelism.
 
 ## Grid and browser expansion
@@ -97,10 +107,12 @@ Grid is a transport/location choice, not a second test architecture. New browser
 New framework behavior should satisfy all of the following:
 
 - external configuration is validated before browser creation;
+- configuration tests use injected reads, not process-wide mutation;
 - browser construction stays inside `WebDriverFactory`;
 - synchronization targets an observable state rather than elapsed time;
 - a helper models application intent or cross-cutting policy rather than mirroring Selenium;
 - driver/evidence lifecycle ownership is explicit;
 - diagnostic output is bounded and privacy-aware;
 - evidence failures cannot mask the original test failure;
+- SDK/test-runner changes preserve a reproducible execution host;
 - a framework-contract test verifies new configuration or diagnostic invariants.
