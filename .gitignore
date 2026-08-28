@@ -1,0 +1,12 @@
+bin/
+obj/
+TestResults/
+artifacts/
+*.trx
+*.coverage
+*.coveragexml
+.env
+.vs/
+.idea/
+.vscode/
+.DS_Store

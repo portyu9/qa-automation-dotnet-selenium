@@ -1,21 +1,52 @@
-name: .NET Selenium Tests
+name: ci
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dotnet-selenium-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: windows-latest
+  test:
+    runs-on: ubuntu-latest
+    env:
+      TEST_BASE_URL: https://www.saucedemo.com
+      TEST_BROWSER: chrome
+      TEST_HEADLESS: "true"
+      TEST_RUN_ID: gha-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - uses: actions/checkout@v3
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '7.0.x'
-      - name: Restore dependencies
-        run: dotnet restore
-      - name: Run tests
-        run: "dotnet clean && dotnet test --no-restore --verbosity normal"
+          dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: UiTests.csproj
+      - name: Restore
+        run: dotnet restore UiTests.csproj
+      - name: Build
+        run: dotnet build UiTests.csproj --configuration Release --no-restore
+      - name: Test
+        run: >-
+          dotnet test UiTests.csproj
+          --configuration Release
+          --no-build
+          --logger "trx;LogFileName=tests.trx"
+          --results-directory TestResults
+          --collect "XPlat Code Coverage"
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-selenium-evidence
+          path: |
+            TestResults/
+            artifacts/
+          if-no-files-found: ignore
+          retention-days: 14
