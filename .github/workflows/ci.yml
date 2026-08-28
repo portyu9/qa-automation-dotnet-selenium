@@ -22,8 +22,8 @@ jobs:
       TEST_HEADLESS: "true"
       TEST_RUN_ID: gha-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 8.0.x
       - name: Restore
@@ -40,7 +40,7 @@ jobs:
           --collect "XPlat Code Coverage"
       - name: Upload test evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dotnet-selenium-evidence
           path: |
