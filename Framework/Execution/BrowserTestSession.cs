@@ -33,7 +33,15 @@ public sealed class BrowserTestSession : IDisposable
         }
         catch
         {
-            ArtifactCollector.Capture(Driver, testName, Settings.RunId);
+            try
+            {
+                ArtifactCollector.Capture(Driver, testName, Settings.RunId);
+            }
+            catch (Exception artifactError)
+            {
+                Console.Error.WriteLine(
+                    $"[artifact-capture:{Settings.RunId}] {artifactError.GetType().Name}: {artifactError.Message}");
+            }
             throw;
         }
     }
@@ -46,6 +54,11 @@ public sealed class BrowserTestSession : IDisposable
         try
         {
             Driver.Quit();
+        }
+        catch (WebDriverException error)
+        {
+            Console.Error.WriteLine(
+                $"[driver-cleanup:{Settings.RunId}] {error.GetType().Name}: {error.Message}");
         }
         finally
         {
