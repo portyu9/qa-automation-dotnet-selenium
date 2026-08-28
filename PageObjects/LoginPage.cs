@@ -1,35 +1,35 @@
 using OpenQA.Selenium;
+using UiTests.Framework.Configuration;
 
-namespace UiTests.PageObjects
+namespace UiTests.PageObjects;
+
+/// <summary>
+/// Sauce Demo login page. Locators remain local to the page and actions wait for
+/// application-observable readiness rather than relying on implicit timing.
+/// </summary>
+public sealed class LoginPage : BasePage
 {
-    /// <summary>
-    /// Page object representing the login page of Sauce Demo.  It exposes element
-    /// properties for username, password and the login button along with a
-    /// convenience method to perform the login action.
-    /// </summary>
-    public class LoginPage : BasePage
+    private static readonly By Username = By.Id("user-name");
+    private static readonly By Password = By.Id("password");
+    private static readonly By Submit = By.Id("login-button");
+
+    public LoginPage(IWebDriver driver, TestSettings settings) : base(driver, settings) { }
+
+    protected override string RelativePath => "/";
+
+    public void Login(string username, string password)
     {
-        public LoginPage(IWebDriver driver) : base(driver) { }
+        ArgumentException.ThrowIfNullOrWhiteSpace(username);
+        ArgumentNullException.ThrowIfNull(password);
 
-        public override string PageUrl => "https://www.saucedemo.com/";
+        var usernameField = Wait.UntilVisible(Username);
+        usernameField.Clear();
+        usernameField.SendKeys(username);
 
-        private IWebElement UsernameField => driver.FindElement(By.Id("user-name"));
-        private IWebElement PasswordField => driver.FindElement(By.Id("password"));
-        private IWebElement LoginButton => driver.FindElement(By.Id("login-button"));
+        var passwordField = Wait.UntilVisible(Password);
+        passwordField.Clear();
+        passwordField.SendKeys(password);
 
-        /// <summary>
-        /// Perform a login by filling the username and password fields and clicking
-        /// the login button.
-        /// </summary>
-        /// <param name="username">The user name to enter</param>
-        /// <param name="password">The password to enter</param>
-        public void Login(string username, string password)
-        {
-            UsernameField.Clear();
-            UsernameField.SendKeys(username);
-            PasswordField.Clear();
-            PasswordField.SendKeys(password);
-            LoginButton.Click();
-        }
+        Wait.UntilClickable(Submit).Click();
     }
 }

@@ -1,25 +1,25 @@
 using OpenQA.Selenium;
+using UiTests.Framework.Configuration;
 
-namespace UiTests.PageObjects
+namespace UiTests.PageObjects;
+
+/// <summary>
+/// Inventory page reached after successful authentication.
+/// </summary>
+public sealed class HomePage : BasePage
 {
-    /// <summary>
-    /// Represents the inventory (home) page that appears after a successful login.
-    /// It exposes a simple IsLoaded property to verify that the inventory container
-    /// is displayed.
-    /// </summary>
-    public class HomePage : BasePage
+    private static readonly By InventoryContainer = By.Id("inventory_container");
+
+    public HomePage(IWebDriver driver, TestSettings settings) : base(driver, settings) { }
+
+    protected override string RelativePath => "/inventory.html";
+
+    public bool IsLoaded
     {
-        public HomePage(IWebDriver driver) : base(driver) { }
-
-        public override string PageUrl => "https://www.saucedemo.com/inventory.html";
-
-        private IWebElement InventoryContainer => driver.FindElement(By.Id("inventory_container"));
-
-        /// <summary>
-        /// Returns true when the inventory container is visible.  The call to
-        /// IWebElement.Displayed will implicitly wait for a short time if a
-        /// default implicit wait is configured on the driver.
-        /// </summary>
-        public bool IsLoaded => InventoryContainer.Displayed;
+        get
+        {
+            Wait.UntilUrlStartsWith(new Uri(PageUrl));
+            return Wait.UntilVisible(InventoryContainer).Displayed;
+        }
     }
 }

@@ -1,32 +1,34 @@
 using OpenQA.Selenium;
+using UiTests.Framework.Configuration;
+using UiTests.Framework.Synchronization;
 
-namespace UiTests.PageObjects
+namespace UiTests.PageObjects;
+
+/// <summary>
+/// Base page boundary. Page objects expose application intent while navigation
+/// and synchronization remain explicit and bounded.
+/// </summary>
+public abstract class BasePage
 {
-    /// <summary>
-    /// Abstract base class for all pages.  It encapsulates the WebDriver instance
-    /// and exposes a Navigate method.  Concrete pages override the PageUrl property
-    /// to define where they live.
-    /// </summary>
-    public abstract class BasePage
+    private readonly TestSettings settings;
+
+    protected BasePage(IWebDriver driver, TestSettings settings)
     {
-        protected readonly IWebDriver driver;
+        Driver = driver ?? throw new ArgumentNullException(nameof(driver));
+        this.settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        Wait = new BrowserWait(driver, settings.ExplicitWait);
+    }
 
-        protected BasePage(IWebDriver driver)
-        {
-            this.driver = driver;
-        }
+    protected IWebDriver Driver { get; }
+    protected BrowserWait Wait { get; }
 
-        /// <summary>
-        /// Gets the absolute URL for this page.  Derived classes must override.
-        /// </summary>
-        public abstract string PageUrl { get; }
+    protected abstract string RelativePath { get; }
 
-        /// <summary>
-        /// Navigate the browser to the page's URL.
-        /// </summary>
-        public void Navigate()
-        {
-            driver.Navigate().GoToUrl(PageUrl);
-        }
+    public string PageUrl => new Uri(settings.BaseUrl, RelativePath).AbsoluteUri;
+
+    public void Navigate()
+    {
+        Driver.Navigate().GoToUrl(PageUrl);
+        Wait.UntilDocumentReady();
     }
 }

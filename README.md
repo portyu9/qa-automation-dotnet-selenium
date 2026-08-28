@@ -1,101 +1,283 @@
-# .NET / Selenium UI Test Framework
+# .NET / Selenium UI Automation Framework
 
-A .NET 8 UI automation framework built with Selenium WebDriver and xUnit. The repository separates browser configuration, driver creation, diagnostics, page abstractions, and test intent so the suite can execute consistently on developer machines, CI runners, or Selenium Grid.
+A C# UI automation framework built on xUnit and Selenium WebDriver. The framework centralizes runtime validation, browser creation, explicit synchronization, failure evidence, and session lifecycle while keeping page objects focused on application behavior and preserving direct WebDriver semantics where they are clearest.
 
-## Core design
+## Engineering contract
 
-- **xUnit** provides test discovery and lifecycle integration.
-- **Selenium WebDriver 4.47.0** provides browser automation; Selenium Manager resolves local browser drivers.
-- **Page objects** contain locators and reusable user interactions.
-- **`TestSettings`** validates environment configuration before side effects.
-- **`WebDriverFactory`** centralizes Chrome, Firefox, Edge, headless, and Grid creation.
-- **`ArtifactCollector`** standardizes failure screenshots/page source/URL evidence.
-- **GitHub Actions** builds and executes tests with TRX and coverage artifacts.
+| Concern | Framework policy |
+| --- | --- |
+| Runtime configuration | Environment values are parsed into immutable `TestSettings` and rejected early when invalid. |
+| Browser creation | Every browser session is created through `WebDriverFactory`; local Selenium Manager and remote Grid are supported. |
+| Synchronization | Implicit wait is always zero. Bounded explicit waits are used only for observable readiness/clickability/URL state. |
+| Test isolation | One xUnit test instance owns one browser session; no shared mutable WebDriver state. |
+| Failure evidence | Screenshot, page source, and current URL are captured before teardown; capture failures cannot replace the original test failure. |
+| Cleanup | Driver quit/dispose is deterministic and cleanup errors are diagnostic rather than assertion replacements. |
+| Cross-browser policy | Chrome, Firefox, and Edge share one factory; CI uses a fast Chrome gate while broader coverage remains configuration-driven. |
+| CI | Restore, Release build, tests, TRX, coverage, and browser artifacts execute with read-only repository permissions. |
 
-## Structure
+## Architecture
+
+```mermaid
+flowchart LR
+    X[xUnit test] --> S[BrowserTestSession]
+    S --> C[TestSettings]
+    S --> F[WebDriverFactory]
+    F --> LOCAL[Local browser
+Selenium Manager]
+    F --> GRID[RemoteWebDriver
+Selenium Grid]
+    X --> P[Page objects]
+    P --> W[BrowserWait]
+    P --> D[IWebDriver]
+    D --> LOCAL
+    D --> GRID
+    S --> A[ArtifactCollector]
+    A --> OUT[artifacts/run-id/test-name]
+```
+
+The dependency direction matters: tests use application-level page operations; page objects receive an already configured driver; the driver factory owns browser policy; synchronization is explicit and narrow; diagnostics sit at the test-session boundary.
+
+## Repository layout
 
 ```text
 .
 ├── Framework/
-│   ├── Configuration/TestSettings.cs
-│   ├── Drivers/WebDriverFactory.cs
-│   └── Diagnostics/ArtifactCollector.cs
+│   ├── Configuration/
+│   │   └── TestSettings.cs
+│   ├── Diagnostics/
+│   │   └── ArtifactCollector.cs
+│   ├── Drivers/
+│   │   └── WebDriverFactory.cs
+│   ├── Execution/
+│   │   └── BrowserTestSession.cs
+│   └── Synchronization/
+│       └── BrowserWait.cs
 ├── PageObjects/
+│   ├── BasePage.cs
+│   ├── LoginPage.cs
+│   └── HomePage.cs
 ├── Tests/
-│   └── Framework/
+│   ├── Framework/
+│   └── LoginTests.cs
 ├── docs/
-├── .github/workflows/ci.yml
-└── UiTests.csproj
+│   ├── ARCHITECTURE.md
+│   └── TEST_STRATEGY.md
+├── UiTests.csproj
+└── .github/workflows/ci.yml
 ```
 
-## Configuration
+## Quick start
 
-| Variable | Meaning | Default |
-| --- | --- | --- |
-| `TEST_BASE_URL` | application base URL | `https://www.saucedemo.com` |
-| `TEST_BROWSER` | `chrome`, `firefox`, or `edge` | `chrome` |
-| `TEST_HEADLESS` | headless browser mode | `true` |
-| `TEST_EXPLICIT_WAIT_SECONDS` | page/component wait budget | `10` |
-| `TEST_PAGE_LOAD_TIMEOUT_SECONDS` | navigation timeout | `30` |
-| `SELENIUM_GRID_URL` | optional remote WebDriver endpoint | unset |
-| `TEST_RUN_ID` | artifact/correlation identifier | generated GUID |
+Prerequisites:
 
-Copy the values from `.env.example` into the executing shell or CI environment. Do not commit credentials.
-
-## Local execution
-
-Prerequisites: .NET 8 SDK and at least one supported browser.
+- .NET SDK 8.x;
+- a supported local Chrome, Firefox, or Edge installation, or access to a Selenium Grid.
 
 ```bash
-dotnet restore
-dotnet build --configuration Release
-dotnet test --configuration Release --logger "trx;LogFileName=tests.trx"
+dotnet restore UiTests.csproj
+dotnet build UiTests.csproj --configuration Release
+dotnet test UiTests.csproj --configuration Release --no-build
 ```
 
 Run against Firefox:
 
 ```bash
-TEST_BROWSER=firefox TEST_HEADLESS=true dotnet test
+TEST_BROWSER=firefox dotnet test UiTests.csproj
 ```
 
-Run against Grid:
+Run against a remote Grid:
 
 ```bash
-SELENIUM_GRID_URL=http://localhost:4444/wd/hub TEST_BROWSER=chrome dotnet test
+TEST_BROWSER=chrome \
+SELENIUM_GRID_URL=http://localhost:4444/wd/hub \
+dotnet test UiTests.csproj
 ```
 
-## Framework conventions
+PowerShell equivalents use `$env:TEST_BROWSER = "firefox"` and `$env:SELENIUM_GRID_URL = "..."` before `dotnet test`.
 
-### Driver lifecycle
+## Runtime configuration
 
-New tests should obtain drivers through `WebDriverFactory`; do not pin `chromedriver`, `geckodriver`, or `msedgedriver` packages. Each concurrent test must own an independent driver. Always call `Quit`/`Dispose` from fixture teardown even after assertion failure.
+`Framework/Configuration/TestSettings.cs` is the only environment parsing boundary.
 
-### Waiting
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `TEST_BASE_URL` | Application base URL used by page objects | `https://www.saucedemo.com` |
+| `TEST_BROWSER` | `chrome`, `firefox`, or `edge` | `chrome` |
+| `TEST_HEADLESS` | Headless browser execution | `true` |
+| `TEST_EXPLICIT_WAIT_SECONDS` | Maximum explicit synchronization budget | `10` |
+| `TEST_PAGE_LOAD_TIMEOUT_SECONDS` | WebDriver page-load timeout | `30` |
+| `SELENIUM_GRID_URL` | Optional remote WebDriver endpoint | unset / local browser |
+| `TEST_RUN_ID` | Artifact and diagnostic correlation identifier | generated GUID |
 
-Implicit wait is intentionally zero. Encapsulate explicit waits inside the page/component that understands the condition. Never combine a large implicit wait with explicit waits, and avoid `Thread.Sleep` for synchronization.
+URLs must be absolute HTTP(S) values. Durations must be positive. Browser names are validated against an explicit allowlist. Invalid configuration is a framework error, not a test retry candidate.
 
-### Page objects
+## Browser lifecycle
 
-A page object models a UI capability, not the entire HTML document. Keep assertions in tests unless an assertion is intrinsic to a component contract. Prefer stable test IDs and accessible locators over DOM structure or generated CSS classes.
+`BrowserTestSession` is the execution boundary for browser tests:
 
-### Failure evidence
+```csharp
+using var session = new BrowserTestSession();
+var login = new LoginPage(session.Driver, session.Settings);
 
-On failure, capture screenshot, current URL, and page source via `ArtifactCollector`. When adding console/network capture, redact cookies, authorization headers, credentials, and sensitive request bodies.
+session.Run("login-contract", () =>
+{
+    login.Navigate();
+    login.Login("user", "credential");
+    // assertions
+});
+```
 
-### Test data
+The session guarantees that:
 
-Tests must be independently runnable and should create unique data. Prefer API-based setup for states that are not the subject of the UI test. Shared accounts should be avoided for parallel suites or isolated into non-parallel collections.
+1. settings are validated before driver creation;
+2. driver creation follows the configured local/Grid policy;
+3. a thrown test exception triggers best-effort evidence capture before cleanup;
+4. an artifact-capture failure is reported but does not mask the original exception;
+5. WebDriver cleanup is attempted exactly once.
 
-## CI
+That ordering is intentional. The first failure is normally the most valuable diagnostic signal and must remain visible.
 
-The workflow restores, builds, and tests on .NET 8, writes TRX and XPlat coverage results, and uploads `TestResults/` plus browser artifacts even when tests fail. Concurrency cancellation prevents stale runs from consuming browser capacity after a newer commit arrives.
+## Driver policy
 
-## Extension points
+`WebDriverFactory` owns all browser construction. It currently supports:
 
-- add browser-specific capabilities inside `WebDriverFactory`, not individual tests;
-- add environment variables through `TestSettings` with validation and safe defaults;
-- add reusable widgets/components beneath `PageObjects` when multiple pages share interaction behavior;
-- add Grid/cloud-provider capabilities without changing test intent;
-- add accessibility, visual, or network assertions as dedicated services so they can be enabled selectively.
+- Chrome / `ChromeDriver`;
+- Firefox / `FirefoxDriver`;
+- Edge / `EdgeDriver`;
+- `RemoteWebDriver` when `SELENIUM_GRID_URL` is configured.
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/TEST_STRATEGY.md`](docs/TEST_STRATEGY.md) for design and governance details.
+Common policy includes:
+
+- implicit wait set to `TimeSpan.Zero`;
+- configured page-load timeout;
+- deterministic 1440×1000 viewport target;
+- browser-specific headless flags;
+- Selenium Manager for local driver resolution.
+
+Tests must not construct a raw `ChromeDriver`, `FirefoxDriver`, or `RemoteWebDriver`. A second construction path creates configuration drift and makes CI/local behavior diverge.
+
+## Synchronization model
+
+`BrowserWait` contains the small set of synchronization primitives that genuinely benefit from central policy:
+
+- element visible;
+- element clickable;
+- document ready state complete;
+- URL starts with an expected absolute URI.
+
+Polling is bounded and ignores only transient `NoSuchElementException` / `StaleElementReferenceException` cases while waiting. Normal interactions still use Selenium directly.
+
+### Why implicit waits are disabled
+
+Implicit waits modify every element lookup and interact poorly with explicit waits, making timing budgets hard to reason about. This framework keeps implicit wait at zero so each synchronization point has one visible upper bound.
+
+Avoid:
+
+```csharp
+Thread.Sleep(2000);
+driver.Manage().Timeouts().ImplicitWait = TimeSpan.FromSeconds(5);
+```
+
+Prefer an application-observable condition through `BrowserWait` or a page method that uses it.
+
+## Page-object boundaries
+
+Page objects should expose business intent and own stable locators. They should not become generic Selenium wrappers.
+
+Good page API:
+
+```csharp
+loginPage.Login(username, password);
+Assert.True(homePage.IsLoaded);
+```
+
+Avoid APIs such as:
+
+```csharp
+page.Click("#selector");
+page.Type("#selector", value);
+page.Wait(3000);
+```
+
+Those methods erase the application vocabulary without adding useful policy.
+
+`BasePage` composes relative paths against the validated `TEST_BASE_URL`, allowing the same page objects to target another environment without hard-coded production-like URLs.
+
+## Failure evidence
+
+On a browser test exception, `ArtifactCollector` writes under:
+
+```text
+artifacts/<run-id>/<sanitized-test-name>/
+├── failure.png
+├── page-source.html
+└── url.txt
+```
+
+Evidence is intentionally scoped to the failing browser state. It is not committed to source control and CI uploads it with bounded retention.
+
+Automatic evidence should never include application credentials. When additional logging is added, keep authentication values, cookies, authorization headers, and sensitive page content out of general-purpose logs.
+
+## CI topology
+
+```mermaid
+flowchart TD
+    G[Push / pull request] --> R[dotnet restore]
+    R --> B[Release build]
+    B --> T[xUnit browser + framework tests]
+    T --> TRX[TRX results]
+    T --> COV[XPlat coverage]
+    T --> ART[Failure artifacts]
+```
+
+The workflow sets an explicit base URL, Chrome/headless policy, and a CI-derived run ID. Test evidence is uploaded even when the test command fails.
+
+## Failure triage
+
+Classify a failure before changing test code:
+
+| Signal | Likely class | First evidence |
+| --- | --- | --- |
+| Settings exception before browser launch | Configuration | workflow/env values |
+| Driver cannot start | Browser/runner infrastructure | job log + browser installation |
+| Page-load timeout | Environment/network/application readiness | URL + page source + runner connectivity |
+| Explicit wait timeout | Selector/application state | screenshot + page source |
+| Assertion failure after loaded state | Product behavior | assertion + screenshot |
+| Artifact capture error | Secondary diagnostic degradation | stderr message; preserve original test exception |
+| Driver cleanup error | Teardown/infrastructure | stderr; do not rewrite the test outcome |
+
+Do not use a rerun to erase classification. A test that passes only after retry is a signal to investigate state leakage, environment saturation, synchronization, or an unstable dependency.
+
+## Extension rules
+
+When adding framework capability:
+
+- add environment parsing to `TestSettings`, not directly to tests;
+- add browser creation behavior to `WebDriverFactory`;
+- add synchronization only when there is a reusable observable condition;
+- keep one browser session per test unless a measured performance constraint justifies a different lifecycle;
+- use page objects for application intent, not Selenium API duplication;
+- add framework tests for configuration and other non-browser infrastructure;
+- capture diagnostics at the lifecycle boundary where failure context still exists;
+- prefer an explicit Grid/browser matrix over conditional logic embedded in tests.
+
+## Anti-patterns
+
+The framework intentionally avoids:
+
+- nonzero implicit waits;
+- `Thread.Sleep` synchronization;
+- raw driver construction inside test classes;
+- static/shared WebDriver instances across parallel tests;
+- assertions inside low-level driver helpers;
+- catch-and-ignore exception handling around assertions;
+- credentials embedded in page objects or committed fixtures;
+- screenshot-only failure reporting with no URL/page-source context;
+- generic wrappers that hide Selenium's native API without enforcing a real policy.
+
+## Further design documentation
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — component boundaries, driver policy, and dependency direction.
+- [`docs/TEST_STRATEGY.md`](docs/TEST_STRATEGY.md) — browser coverage, reliability rules, and release-gate guidance.
+
+The framework should remain easy to debug under failure. A readable page object, one explicit timing budget, one driver factory, and evidence captured at the correct lifecycle boundary are more valuable than a large abstraction surface.
