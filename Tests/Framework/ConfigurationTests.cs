@@ -31,4 +31,23 @@ public class ConfigurationTests
             Environment.SetEnvironmentVariable("TEST_BROWSER", original);
         }
     }
+
+    [Theory]
+    [InlineData("TEST_BASE_URL", "https://user:password@example.test")]
+    [InlineData("TEST_BASE_URL", "https://example.test/app?access_token=secret")]
+    [InlineData("TEST_BASE_URL", "https://example.test/app#fragment")]
+    [InlineData("SELENIUM_GRID_URL", "https://grid.example.test/wd/hub?token=secret")]
+    public void UnsafeFrameworkUrlsFailBeforeDriverCreation(string name, string value)
+    {
+        var original = Environment.GetEnvironmentVariable(name);
+        try
+        {
+            Environment.SetEnvironmentVariable(name, value);
+            Assert.Throws<InvalidOperationException>(() => TestSettings.FromEnvironment());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(name, original);
+        }
+    }
 }
