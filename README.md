@@ -4,6 +4,19 @@
 [![Extended](https://github.com/portyu9/qa-automation-dotnet-selenium/actions/workflows/extended.yml/badge.svg)](https://github.com/portyu9/qa-automation-dotnet-selenium/actions/workflows/extended.yml)
 [![Security](https://github.com/portyu9/qa-automation-dotnet-selenium/actions/workflows/security.yml/badge.svg)](https://github.com/portyu9/qa-automation-dotnet-selenium/actions/workflows/security.yml)
 
+[![C#](https://img.shields.io/badge/C%23-language-512BD4)](https://learn.microsoft.com/dotnet/csharp/)
+[![.NET](https://img.shields.io/badge/.NET-8.0-512BD4)](https://dotnet.microsoft.com/)
+[![xUnit v3](https://img.shields.io/badge/xUnit%20v3-4.0-5C2D91)](https://xunit.net/)
+[![Selenium](https://img.shields.io/badge/Selenium-4.48-43B02A)](https://www.selenium.dev/)
+[![Chrome](https://img.shields.io/badge/Chrome-primary%20browser-4285F4)](https://www.google.com/chrome/)
+[![Firefox](https://img.shields.io/badge/Firefox-extended%20browser-FF7139)](https://www.mozilla.org/firefox/)
+[![Edge](https://img.shields.io/badge/Edge-supported-0078D7)](https://www.microsoft.com/edge)
+[![Coverlet](https://img.shields.io/badge/Coverlet-10.0-6E7781)](https://github.com/coverlet-coverage/coverlet)
+[![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-CI-2088FF)](https://github.com/features/actions)
+[![Trivy](https://img.shields.io/badge/Trivy-security%20scan-1904DA)](https://trivy.dev/)
+[![License](https://img.shields.io/badge/License-MIT-2EA44F)](LICENSE)
+[![Security Policy](https://img.shields.io/badge/Security-Policy-6E7781)](.github/SECURITY.md)
+
 A C# browser quality-engineering framework built on **xUnit v3**, **Selenium WebDriver**, and a deterministically selected .NET 8 SDK. Runtime configuration, browser construction, synchronization, failure evidence, and teardown are explicit framework boundaries; page objects remain focused on application behavior and native WebDriver semantics remain visible where they are already the clearest abstraction.
 
 > [!IMPORTANT]
