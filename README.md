@@ -1,17 +1,18 @@
 # .NET / Selenium UI Automation Framework
 
-A C# UI automation framework built on xUnit and Selenium WebDriver. The framework centralizes runtime validation, browser creation, explicit synchronization, failure evidence, and session lifecycle while keeping page objects focused on application behavior and preserving direct WebDriver semantics where they are clearest.
+A C# UI automation framework built on xUnit v3 and Selenium WebDriver. The framework centralizes runtime validation, browser creation, explicit synchronization, failure evidence, and session lifecycle while keeping page objects focused on application behavior and preserving direct WebDriver semantics where they are clearest.
 
 ## Engineering contract
 
 | Concern | Framework policy |
 | --- | --- |
-| Runtime configuration | Environment values are parsed into immutable `TestSettings` and rejected early when invalid. |
+| Runtime configuration | Environment values are parsed into immutable `TestSettings` and rejected early when invalid. Contract tests inject a variable lookup instead of mutating process-global environment state. |
 | Browser creation | Every browser session is created through `WebDriverFactory`; local Selenium Manager and remote Grid are supported. |
 | Synchronization | Implicit wait is always zero. Bounded explicit waits are used only for observable readiness/clickability/URL state. |
-| Test isolation | One xUnit test instance owns one browser session; no shared mutable WebDriver state. |
+| Test isolation | One xUnit test instance owns one browser session; no shared mutable WebDriver or test-owned process-environment mutation. |
 | Failure evidence | Screenshot, page source, and current URL are captured before teardown; capture failures cannot replace the original test failure. |
 | Cleanup | Driver quit/dispose is deterministic and cleanup errors are diagnostic rather than assertion replacements. |
+| Toolchain | `global.json` keeps SDK selection on the .NET 8 feature band; xUnit v3 and its Visual Studio adapter are versioned explicitly. |
 | Cross-browser policy | Chrome, Firefox, and Edge share one factory; CI uses a fast Chrome gate while broader coverage remains configuration-driven. |
 | CI | Restore, Release build, tests, TRX, coverage, and browser artifacts execute with read-only repository permissions. |
 
@@ -19,13 +20,11 @@ A C# UI automation framework built on xUnit and Selenium WebDriver. The framewor
 
 ```mermaid
 flowchart LR
-    X[xUnit test] --> S[BrowserTestSession]
+    X[xUnit v3 test] --> S[BrowserTestSession]
     S --> C[TestSettings]
     S --> F[WebDriverFactory]
-    F --> LOCAL[Local browser
-Selenium Manager]
-    F --> GRID[RemoteWebDriver
-Selenium Grid]
+    F --> LOCAL[Local browser\nSelenium Manager]
+    F --> GRID[RemoteWebDriver\nSelenium Grid]
     X --> P[Page objects]
     P --> W[BrowserWait]
     P --> D[IWebDriver]
@@ -62,6 +61,7 @@ The dependency direction matters: tests use application-level page operations; p
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── TEST_STRATEGY.md
+├── global.json
 ├── UiTests.csproj
 └── .github/workflows/ci.yml
 ```
@@ -70,7 +70,7 @@ The dependency direction matters: tests use application-level page operations; p
 
 Prerequisites:
 
-- .NET SDK 8.x;
+- a .NET 8 SDK compatible with `global.json`;
 - a supported local Chrome, Firefox, or Edge installation, or access to a Selenium Grid.
 
 ```bash
@@ -78,6 +78,10 @@ dotnet restore UiTests.csproj
 dotnet build UiTests.csproj --configuration Release
 dotnet test UiTests.csproj --configuration Release --no-build
 ```
+
+`global.json` anchors SDK selection to the .NET 8 `8.0.400` feature band and rolls forward only to its latest patch. This prevents a newer machine-wide SDK from silently changing the test-host behavior.
+
+The xUnit v3 test project is executable as required by the v3 architecture. CI intentionally continues to invoke it through `dotnet test` and `xunit.runner.visualstudio` so TRX and Coverlet evidence remain part of the gate.
 
 Run against Firefox:
 
@@ -97,7 +101,7 @@ PowerShell equivalents use `$env:TEST_BROWSER = "firefox"` and `$env:SELENIUM_GR
 
 ## Runtime configuration
 
-`Framework/Configuration/TestSettings.cs` is the only environment parsing boundary.
+`Framework/Configuration/TestSettings.cs` is the only production environment parsing boundary.
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
@@ -110,6 +114,8 @@ PowerShell equivalents use `$env:TEST_BROWSER = "firefox"` and `$env:SELENIUM_GR
 | `TEST_RUN_ID` | Artifact and diagnostic correlation identifier | generated GUID |
 
 URLs must be absolute HTTP(S) values. Durations must be positive. Browser names are validated against an explicit allowlist. Invalid configuration is a framework error, not a test retry candidate.
+
+`TestSettings.FromEnvironment()` reads the real process environment in production. The internal overload accepts a read-only variable lookup for framework-contract tests. This keeps parser coverage deterministic and parallel-safe without changing process-wide environment variables while other xUnit v3 tests are executing.
 
 ## Browser lifecycle
 
@@ -222,15 +228,16 @@ Automatic evidence should never include application credentials. When additional
 
 ```mermaid
 flowchart TD
-    G[Push / pull request] --> R[dotnet restore]
+    G[Push / pull request] --> SDK[Resolve .NET 8 via global.json]
+    SDK --> R[dotnet restore]
     R --> B[Release build]
-    B --> T[xUnit browser + framework tests]
+    B --> T[xUnit v3 browser + framework tests]
     T --> TRX[TRX results]
     T --> COV[XPlat coverage]
     T --> ART[Failure artifacts]
 ```
 
-The workflow sets an explicit base URL, Chrome/headless policy, and a CI-derived run ID. Test evidence is uploaded even when the test command fails.
+The workflow sets an explicit base URL, Chrome/headless policy, and a CI-derived run ID. Test evidence is uploaded even when the test command fails. The SDK pin and package versions make the test-host selection reviewable rather than dependent on whichever newer SDK happens to be installed on the runner.
 
 ## Failure triage
 
@@ -252,7 +259,8 @@ Do not use a rerun to erase classification. A test that passes only after retry 
 
 When adding framework capability:
 
-- add environment parsing to `TestSettings`, not directly to tests;
+- add production environment parsing to `TestSettings`, not directly to tests;
+- test configuration through the injected variable lookup instead of mutating process-global environment state;
 - add browser creation behavior to `WebDriverFactory`;
 - add synchronization only when there is a reusable observable condition;
 - keep one browser session per test unless a measured performance constraint justifies a different lifecycle;
@@ -269,6 +277,7 @@ The framework intentionally avoids:
 - `Thread.Sleep` synchronization;
 - raw driver construction inside test classes;
 - static/shared WebDriver instances across parallel tests;
+- process-wide environment mutation from parallel framework tests;
 - assertions inside low-level driver helpers;
 - catch-and-ignore exception handling around assertions;
 - credentials embedded in page objects or committed fixtures;
@@ -280,4 +289,4 @@ The framework intentionally avoids:
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — component boundaries, driver policy, and dependency direction.
 - [`docs/TEST_STRATEGY.md`](docs/TEST_STRATEGY.md) — browser coverage, reliability rules, and release-gate guidance.
 
-The framework should remain easy to debug under failure. A readable page object, one explicit timing budget, one driver factory, and evidence captured at the correct lifecycle boundary are more valuable than a large abstraction surface.
+The framework should remain easy to debug under failure. A readable page object, one explicit timing budget, one driver factory, deterministic configuration inputs, and evidence captured at the correct lifecycle boundary are more valuable than a large abstraction surface.
