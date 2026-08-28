@@ -1,0 +1,77 @@
+name: extended
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "Framework/**"
+      - "PageObjects/**"
+      - "Tests/**"
+      - "UiTests.csproj"
+      - "global.json"
+      - ".github/workflows/extended.yml"
+  schedule:
+    - cron: "47 7 * * 3"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dotnet-extended-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cross-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chrome, firefox]
+    env:
+      TEST_BASE_URL: https://www.saucedemo.com
+      TEST_BROWSER: ${{ matrix.browser }}
+      TEST_HEADLESS: "true"
+      TEST_RUN_ID: gha-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.browser }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+      - name: Restore
+        run: dotnet restore UiTests.csproj
+      - name: Release build
+        run: dotnet build UiTests.csproj --configuration Release --no-restore
+      - name: Run xUnit v3 suite in ${{ matrix.browser }}
+        run: >-
+          dotnet test UiTests.csproj
+          --configuration Release
+          --no-build
+          --logger "trx;LogFileName=${{ matrix.browser }}.trx"
+          --results-directory TestResults/${{ matrix.browser }}
+          --collect "XPlat Code Coverage"
+      - name: Publish browser observability summary
+        if: always()
+        run: |
+          mkdir -p "artifacts/ci-${{ matrix.browser }}"
+          {
+            echo "### Selenium / xUnit v3 · ${{ matrix.browser }}"
+            echo
+            echo "- Run ID: \`${TEST_RUN_ID}\`"
+            echo "- Browser: \`${{ matrix.browser }}\`"
+            echo "- Target framework: \`net8.0\`"
+            echo "- Job status: \`${{ job.status }}\`"
+            echo "- Evidence: TRX + Cobertura coverage + browser failure artifacts"
+          } | tee "artifacts/ci-${{ matrix.browser }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload cross-browser evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: selenium-${{ matrix.browser }}-extended-evidence
+          path: |
+            TestResults/${{ matrix.browser }}/
+            artifacts/
+          if-no-files-found: ignore
+          retention-days: 14
