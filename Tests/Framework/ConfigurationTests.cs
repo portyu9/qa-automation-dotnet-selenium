@@ -8,28 +8,48 @@ public class ConfigurationTests
     [Fact]
     public void DefaultsAreValidAndSafeForCi()
     {
-        var settings = TestSettings.FromEnvironment();
+        var settings = TestSettings.FromEnvironment(_ => null);
 
         Assert.True(settings.BaseUrl.IsAbsoluteUri);
-        Assert.Contains(settings.Browser, new[] { "chrome", "firefox", "edge" });
+        Assert.Equal("chrome", settings.Browser);
+        Assert.True(settings.Headless);
         Assert.True(settings.ExplicitWait > TimeSpan.Zero);
         Assert.True(settings.PageLoadTimeout > TimeSpan.Zero);
         Assert.False(string.IsNullOrWhiteSpace(settings.RunId));
     }
 
     [Fact]
+    public void ExplicitValuesAreParsedWithoutMutatingProcessEnvironment()
+    {
+        var values = new Dictionary<string, string?>
+        {
+            ["TEST_BASE_URL"] = "https://example.test/app",
+            ["TEST_BROWSER"] = "firefox",
+            ["TEST_HEADLESS"] = "false",
+            ["TEST_EXPLICIT_WAIT_SECONDS"] = "7",
+            ["TEST_PAGE_LOAD_TIMEOUT_SECONDS"] = "21",
+            ["SELENIUM_GRID_URL"] = "https://grid.example.test/wd/hub",
+            ["TEST_RUN_ID"] = "contract-run"
+        };
+
+        var settings = TestSettings.FromEnvironment(
+            name => values.TryGetValue(name, out var value) ? value : null);
+
+        Assert.Equal(new Uri("https://example.test/app"), settings.BaseUrl);
+        Assert.Equal("firefox", settings.Browser);
+        Assert.False(settings.Headless);
+        Assert.Equal(TimeSpan.FromSeconds(7), settings.ExplicitWait);
+        Assert.Equal(TimeSpan.FromSeconds(21), settings.PageLoadTimeout);
+        Assert.Equal(new Uri("https://grid.example.test/wd/hub"), settings.GridUrl);
+        Assert.Equal("contract-run", settings.RunId);
+    }
+
+    [Fact]
     public void InvalidBrowserFailsBeforeDriverCreation()
     {
-        var original = Environment.GetEnvironmentVariable("TEST_BROWSER");
-        try
-        {
-            Environment.SetEnvironmentVariable("TEST_BROWSER", "unsupported-browser");
-            Assert.Throws<InvalidOperationException>(() => TestSettings.FromEnvironment());
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("TEST_BROWSER", original);
-        }
+        Assert.Throws<InvalidOperationException>(() =>
+            TestSettings.FromEnvironment(
+                name => name == "TEST_BROWSER" ? "unsupported-browser" : null));
     }
 
     [Theory]
@@ -39,15 +59,7 @@ public class ConfigurationTests
     [InlineData("SELENIUM_GRID_URL", "https://grid.example.test/wd/hub?token=secret")]
     public void UnsafeFrameworkUrlsFailBeforeDriverCreation(string name, string value)
     {
-        var original = Environment.GetEnvironmentVariable(name);
-        try
-        {
-            Environment.SetEnvironmentVariable(name, value);
-            Assert.Throws<InvalidOperationException>(() => TestSettings.FromEnvironment());
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(name, original);
-        }
+        Assert.Throws<InvalidOperationException>(() =>
+            TestSettings.FromEnvironment(variable => variable == name ? value : null));
     }
 }
