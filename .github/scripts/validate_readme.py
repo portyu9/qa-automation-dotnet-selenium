@@ -21,6 +21,8 @@ SECURITY_BADGE_RE = re.compile(
     r"https://img\.shields\.io/badge/Security-Policy-([0-9A-Fa-f]{6})"
 )
 MERMAID_RE = re.compile(r"```mermaid\s*\n(.*?)```", re.DOTALL)
+TEXT_FENCE_RE = re.compile(r"```text\s*\n(.*?)```", re.DOTALL)
+FLOW_GLYPHS = frozenset("↓↑←→↙↘↖↗")
 MERMAID_ROOTS = (
     "flowchart",
     "graph",
@@ -104,6 +106,23 @@ def validate_mermaid(text: str, errors: list[str]) -> None:
             )
 
 
+def validate_text_diagrams(text: str, errors: list[str]) -> None:
+    """Prevent flow diagrams from being hidden inside plain-text fences.
+
+    Directory/artifact trees intentionally use box-drawing characters and remain
+    valid text. Directional arrows indicate a flow and must use Mermaid so GitHub
+    renders a real diagram rather than font-dependent pseudo-graphics.
+    """
+    for index, block in enumerate(TEXT_FENCE_RE.findall(text), start=1):
+        glyphs = sorted({character for character in block if character in FLOW_GLYPHS})
+        if glyphs:
+            fail(
+                f"text block {index} contains flow-diagram arrows ({''.join(glyphs)}); "
+                "use a Mermaid diagram instead",
+                errors,
+            )
+
+
 def main() -> int:
     errors: list[str] = []
 
@@ -120,6 +139,7 @@ def main() -> int:
     validate_workflow_badges(text, errors)
     validate_badge_palette(text, errors)
     validate_mermaid(text, errors)
+    validate_text_diagrams(text, errors)
 
     if errors:
         print("README contract failed:")
