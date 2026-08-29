@@ -74,7 +74,7 @@ flowchart LR
 | Context switching | Frames, alerts, windows, JavaScript, and cookies use native WebDriver APIs with explicit restoration where context can change. |
 | Window ownership | `BrowserWindowScope` closes only the child it owns and restores the originating handle on disposal. |
 | Negative behavior | Authentication rejection is a required executable contract. |
-| Evidence | Capture occurs before teardown without replacing the primary exception. |
+| Evidence | Automatic failure capture is sanitized URL + screenshot; page source is explicit opt-in. |
 | Artifact safety | Path material is constrained and diagnostic URLs are sanitized. |
 | Reproducibility | .NET 8 is constrained by `global.json`; package versions are explicit. |
 
@@ -142,7 +142,7 @@ dotnet test UiTests.csproj
 - `WebDriverFactory` owns browser/Grid construction;
 - `BrowserWait` owns reusable synchronization policy;
 - `BrowserWindowScope` owns a child-window lifecycle and originating-context restoration;
-- `ArtifactCollector` owns bounded failure evidence;
+- `ArtifactCollector` owns privacy-minimized failure evidence;
 - `BrowserTestSession` preserves the causal exception through evidence and cleanup.
 
 </details>
@@ -221,7 +221,7 @@ Wait.UntilVisible(By.Id("inventory_container"));
 
 Page objects own feature-specific selectors and operations; they do not rename every Selenium method. Native `IWebDriver`, `By`, browser-context APIs, and Selenium exceptions remain visible where they are the clearest diagnostic surface.
 
-Failure artifacts use bounded run/test paths. Diagnostic URLs strip credentials, query strings, and fragments. Screenshots/page source can still contain application-visible data, so synthetic data and retention policy remain necessary.
+Automatic failure artifacts use bounded run/test paths and retain a sanitized URL plus screenshot when available. Diagnostic URLs strip credentials, query strings, and fragments. Page source is not part of generic automatic evidence; callers may opt in with `includePageSource: true` only for a controlled-data diagnostic case with appropriate retention/access policy. Screenshots can still contain application-visible data, so synthetic data remains the default test-data posture.
 
 ## Grid policy
 
@@ -229,7 +229,7 @@ Grid changes **where** browser commands execute, not test architecture. Page/tes
 
 ## CI and governance
 
-Primary CI builds and runs headless Chrome against the local fixture with TRX and coverage. Extended CI runs Chrome/Firefox independently. Security and docs workflows remain separate gates with their own evidence.
+Primary CI builds and runs headless Chrome against the local fixture with TRX and coverage. Extended CI runs Chrome/Firefox independently. Security and docs workflows remain separate gates with their own evidence. Trivy covers vulnerability, misconfiguration, and committed-secret findings.
 
 A deployed-environment run should add a new integration signal rather than replacing deterministic browser CI.
 
@@ -269,6 +269,7 @@ Package automation, `global.json`, explicit package versions, and Trivy each add
 - frame/window switching without explicit restoration ownership;
 - `Thread.Sleep` readiness;
 - mixed implicit/explicit waits;
+- automatic page-source persistence without an explicit data-handling decision;
 - evidence exceptions masking causal failures;
 - process-global environment mutation in parallel-safe configuration tests;
 - credential/query-token persistence in generic diagnostics;
