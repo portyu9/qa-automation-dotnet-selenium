@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -15,7 +16,9 @@ public sealed class LocalUiServer : IDisposable
 
     private readonly CancellationTokenSource cancellation = new();
     private readonly TcpListener listener = new(IPAddress.Loopback, Port);
+    private readonly ConcurrentDictionary<int, Task> activeClients = new();
     private readonly Task acceptLoop;
+    private int nextClientId;
     private bool disposed;
 
     public LocalUiServer()
@@ -48,7 +51,34 @@ public sealed class LocalUiServer : IDisposable
                 break;
             }
 
-            _ = Task.Run(() => HandleClientAsync(client, token), token);
+            var clientId = Interlocked.Increment(ref nextClientId);
+            var task = HandleClientSafelyAsync(client, token);
+            activeClients[clientId] = task;
+            _ = task.ContinueWith(
+                _ => activeClients.TryRemove(clientId, out _),
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+    }
+
+    private static async Task HandleClientSafelyAsync(TcpClient client, CancellationToken token)
+    {
+        try
+        {
+            await HandleClientAsync(client, token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // Expected if fixture teardown interrupts an in-flight request.
+        }
+        catch (IOException) when (token.IsCancellationRequested)
+        {
+            // Expected when the listener/client transport is torn down.
+        }
+        catch (ObjectDisposedException) when (token.IsCancellationRequested)
+        {
+            // Expected when fixture teardown closes transport resources.
         }
     }
 
@@ -125,6 +155,7 @@ public sealed class LocalUiServer : IDisposable
         try
         {
             acceptLoop.GetAwaiter().GetResult();
+            Task.WhenAll(activeClients.Values.ToArray()).GetAwaiter().GetResult();
         }
         catch (OperationCanceledException)
         {
@@ -176,7 +207,7 @@ public sealed class LocalUiServer : IDisposable
 
     private const string InventoryPage = """
 <!doctype html>
-<html lang="en">
+<html lang="en">">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
