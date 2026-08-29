@@ -29,7 +29,7 @@ public class ConfigurationTests
             ["TEST_EXPLICIT_WAIT_SECONDS"] = "7",
             ["TEST_PAGE_LOAD_TIMEOUT_SECONDS"] = "21",
             ["SELENIUM_GRID_URL"] = "https://grid.example.test/wd/hub",
-            ["TEST_RUN_ID"] = "contract-run"
+            ["TEST_RUN_ID"] = "contract-run:firefox"
         };
 
         var settings = TestSettings.FromEnvironment(
@@ -41,7 +41,7 @@ public class ConfigurationTests
         Assert.Equal(TimeSpan.FromSeconds(7), settings.ExplicitWait);
         Assert.Equal(TimeSpan.FromSeconds(21), settings.PageLoadTimeout);
         Assert.Equal(new Uri("https://grid.example.test/wd/hub"), settings.GridUrl);
-        Assert.Equal("contract-run", settings.RunId);
+        Assert.Equal("contract-run:firefox", settings.RunId);
     }
 
     [Fact]
@@ -61,5 +61,17 @@ public class ConfigurationTests
     {
         Assert.Throws<InvalidOperationException>(() =>
             TestSettings.FromEnvironment(variable => variable == name ? value : null));
+    }
+
+    [Theory]
+    [InlineData("../outside")]
+    [InlineData("run/child")]
+    [InlineData("run\\child")]
+    [InlineData("contains space")]
+    public void UnsafeRunIdentifiersFailBeforeDriverCreation(string value)
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            TestSettings.FromEnvironment(
+                name => name == "TEST_RUN_ID" ? value : null));
     }
 }

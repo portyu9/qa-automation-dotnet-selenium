@@ -10,8 +10,7 @@ public static class ArtifactCollector
         string runId,
         string root = "artifacts")
     {
-        var safeName = Sanitize(testName);
-        var directory = Path.Combine(root, runId, safeName);
+        var directory = ResolveDirectory(root, runId, testName);
         Directory.CreateDirectory(directory);
 
         File.WriteAllText(Path.Combine(directory, "page-source.html"), driver.PageSource);
@@ -22,6 +21,25 @@ public static class ArtifactCollector
         if (driver is ITakesScreenshot screenshots)
         {
             screenshots.GetScreenshot().SaveAsFile(Path.Combine(directory, "failure.png"));
+        }
+
+        return directory;
+    }
+
+    internal static string ResolveDirectory(string root, string runId, string testName)
+    {
+        var rootPath = Path.GetFullPath(root);
+        var directory = Path.GetFullPath(Path.Combine(
+            rootPath,
+            SanitizePathSegment(runId),
+            SanitizePathSegment(testName)));
+        var relative = Path.GetRelativePath(rootPath, directory);
+
+        if (relative == ".." ||
+            relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ||
+            Path.IsPathRooted(relative))
+        {
+            throw new InvalidOperationException("artifact path must remain inside the configured root");
         }
 
         return directory;
@@ -45,9 +63,12 @@ public static class ArtifactCollector
         return builder.Uri.AbsoluteUri;
     }
 
-    private static string Sanitize(string value)
+    private static string SanitizePathSegment(string value)
     {
         var invalid = Path.GetInvalidFileNameChars();
-        return new string(value.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray());
+        var sanitized = new string(value.Select(ch =>
+            invalid.Contains(ch) || ch is '/' or '\\' ? '_' : ch).ToArray()).Trim();
+
+        return sanitized is "" or "." or ".." ? "_" : sanitized;
     }
 }
