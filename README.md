@@ -15,111 +15,75 @@
 [![License](https://img.shields.io/badge/License-MIT-2EA44F?logo=opensourceinitiative&logoColor=white)](LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-Policy-24292F?logo=github&logoColor=white)](.github/SECURITY.md)
 
-A C# browser quality-engineering framework built on **xUnit v3**, **Selenium WebDriver**, and a deterministically selected .NET 8 SDK. Runtime configuration, browser construction, synchronization, failure evidence, and teardown are explicit framework boundaries; page objects remain focused on application behavior and native WebDriver semantics remain visible where they are already the clearest abstraction.
+A C# browser quality-engineering framework built on **xUnit v3**, **Selenium WebDriver**, and .NET 8. It treats configuration, browser construction, deterministic application ownership, synchronization, evidence capture, and teardown as explicit boundaries while keeping native WebDriver semantics visible.
 
 > [!IMPORTANT]
-> The framework treats a browser test as a managed execution session, not a script with assertions. Configuration must be valid before a driver exists, waits must observe state rather than time, evidence must be captured before teardown, and diagnostic failures must never replace the original test failure.
+> Required browser CI is independent of public demonstration sites. The default application target is a repository-owned loopback fixture implemented in C#. A deployed application or Selenium Grid remains an explicit configuration choice, not a prerequisite for framework correctness.
 
 ## Capability map
 
-| Validation plane | Purpose | Execution policy | Evidence |
+| Plane | What it proves | Execution | Evidence |
 | --- | --- | --- | --- |
-| Primary CI | Framework contracts + real browser flow | .NET 8, xUnit v3, Chrome | TRX, Cobertura, browser artifacts |
-| Extended browser | Browser compatibility | Chrome + Firefox on Linux | Per-browser TRX, coverage, artifacts |
-| Local/Grid | Driver-location portability | Chrome / Firefox / Edge / RemoteWebDriver | Same test/page surface |
-| Security | Dependency and repository-configuration risk | Pinned Trivy filesystem scan | JSON findings + Markdown summary |
-| Documentation contract | README links, workflow badges, Mermaid declarations, governance surfaces, badge palette | Python stdlib validator | Actions status |
-| Observability | Run identity and gate state | Structured CI envelope + run correlation | `artifacts/ci/observability.json`, Actions summary |
+| Framework contract | Configuration and artifact safety | xUnit v3 / .NET 8 | Assertions + coverage |
+| Primary browser | Browser/session + authentication behavior | Chrome / local fixture | TRX, Cobertura, browser artifacts |
+| Extended browser | Engine compatibility | Chrome + Firefox / local fixture | Per-browser evidence |
+| Remote execution | Driver-location portability | Optional Selenium Grid | Same page/test surface |
+| Security | Dependency/configuration exposure | Trivy filesystem scan | JSON + Markdown findings |
+| Documentation | README/workflow/governance consistency | Repository-local validator | Actions status |
+| Observability | Run/gate identity | CI envelope + correlation | `artifacts/ci/` + Actions summary |
 
 ```mermaid
 flowchart LR
-    CHANGE[Change] --> CI[Primary CI · Chrome]
-    CHANGE --> SEC[Security gate]
-    CHANGE --> DOCS[README contract]
-    CHANGE -->|browser/framework paths| EXT[Extended matrix]
-    EXT --> CH[Chrome]
-    EXT --> FF[Firefox]
-    CI --> EVIDENCE[TRX · Coverage · Browser evidence]
-    CH --> EVIDENCE
-    FF --> EVIDENCE
-    SEC --> EVIDENCE
-    DOCS --> EVIDENCE
+    TEST[xUnit v3] --> SESSION[BrowserTestSession]
+    SESSION --> CFG[TestSettings]
+    SESSION --> DRIVER[WebDriverFactory]
+    TEST --> PAGE[Page objects]
+    PAGE --> WAIT[BrowserWait]
+    TEST --> FIX[LocalUiServer collection fixture]
+    DRIVER --> BROWSER[Chrome · Firefox · Edge · Grid]
+    BROWSER --> FIX
+    SESSION --> ART[ArtifactCollector]
+    ART --> EV[Failure evidence]
 
     classDef entry fill:#ddf4ff,stroke:#0969da,color:#24292f,stroke-width:1.5px;
     classDef core fill:#f6f8fa,stroke:#57606a,color:#24292f,stroke-width:1.5px;
-    classDef gate fill:#fbefff,stroke:#8250df,color:#24292f,stroke-width:1.5px;
     classDef evidence fill:#dafbe1,stroke:#1a7f37,color:#24292f,stroke-width:1.5px;
-    classDef security fill:#ffebe9,stroke:#cf222e,color:#24292f,stroke-width:1.5px;
-    class CHANGE entry;
-    class CI core;
-    class EXT,CH,FF,DOCS gate;
-    class SEC security;
-    class EVIDENCE evidence;
+    class TEST entry;
+    class SESSION,CFG,DRIVER,PAGE,WAIT,FIX,BROWSER core;
+    class ART,EV evidence;
     linkStyle default stroke:#57606a,stroke-width:1.4px;
 ```
-
-The normal pull-request lane stays intentionally narrow for feedback speed. Browser multiplication is a separate risk-based gate instead of a permanent multiplier on every change; documentation and security stay independent so their failures cannot be misclassified as browser behavior.
 
 ## Engineering invariants
 
 | Concern | Framework contract |
 | --- | --- |
-| Runtime inputs | `TestSettings` validates and normalizes all environment-derived values before WebDriver creation. |
-| Configuration testing | Contract tests inject a read-only variable lookup; they never mutate process-global environment state. |
-| Correlation | `TEST_RUN_ID` is a bounded ASCII token; unsafe path-like values fail before driver creation. |
-| Browser construction | `WebDriverFactory` is the only driver-construction boundary. |
-| Toolchain | `global.json` anchors SDK selection to the .NET 8 feature band; package versions are explicit. |
-| Synchronization | Implicit wait is zero; bounded explicit waits observe visibility, clickability, document, or URL state. |
-| Isolation | One xUnit test instance owns one browser session; no static/shared driver state. |
-| Failure evidence | Screenshot, page source, and sanitized URL are captured before teardown on failure. |
-| Artifact containment | Run/test identifiers are sanitized and the resolved evidence path is verified to remain inside its configured root. |
-| Exception integrity | Evidence/cleanup failures are secondary diagnostics and cannot mask the primary test exception. |
-| Cross-browser | Chrome, Firefox, and Edge share one factory; CI matrix breadth is a policy choice, not test-code branching. |
-| Documentation | README-local references, workflow badges, Mermaid roots, governance files, and static badge-color uniqueness are executable contracts. |
+| Default target | `http://127.0.0.1:3200` is the deterministic browser target. |
+| Fixture ownership | `LocalUiServer` is a C# xUnit collection fixture; no Node/Python helper runtime is introduced. |
+| External integration | A non-default `TEST_BASE_URL` is explicit and classified separately from required CI. |
+| Runtime inputs | `TestSettings` validates values before WebDriver creation. |
+| Browser construction | `WebDriverFactory` is the single local/Grid construction boundary. |
+| Synchronization | Implicit wait is zero; explicit waits observe visible/clickable/document/URL state. |
+| Isolation | One xUnit test instance owns one WebDriver session. |
+| Negative behavior | Invalid authentication is a required executable contract. |
+| Failure evidence | Evidence is captured before teardown without masking the primary exception. |
+| Artifact safety | Run/test path material is constrained and diagnostic URLs are sanitized. |
+| Reproducibility | .NET 8 is constrained by `global.json`; package versions are explicit. |
+| CI safety | Read-only workflow permissions, concurrency cancellation, and bounded job time are enforced. |
 
 ## Tool ownership model
 
-| Tool / technology | Native responsibility | Framework responsibility | Deliberately left visible |
-| --- | --- | --- | --- |
-| xUnit v3 | Test discovery, instance lifecycle, parallel scheduling, assertions, failure reporting | Browser-session fixture pattern, injected configuration tests, framework contracts | Native test identity, exception/stack semantics, xUnit concurrency model |
-| Selenium WebDriver | Browser protocol, driver commands, element interaction, navigation | Single driver factory, local/Grid selection, browser options, deterministic teardown | `IWebDriver`, `By`, native driver exceptions, protocol behavior |
-| Selenium Manager | Local driver/browser resolution | Used only through the local factory path | Resolution failures remain Selenium/runtime failures rather than framework retries |
-| `WebDriverWait` | Polling a condition until success/timeout | Reusable observable wait policies with zero implicit wait | The actual predicate and timeout failure remain inspectable |
-| Chrome / Firefox / Edge | Browser-engine behavior | Matrix policy and consistent capabilities | Engine-specific rendering/input/navigation differences |
-| RemoteWebDriver / Grid | Remote session negotiation and command transport | Optional endpoint configuration and the same page/test surface | Grid availability/capability negotiation remains a distinct failure domain |
-| .NET SDK / NuGet | Compilation, restore, runtime host, dependency graph | `global.json`, explicit packages, release-build/test commands | Compiler/restore diagnostics are not wrapped into browser errors |
-| Trivy | Filesystem vulnerability and supported misconfiguration analysis | Blocking severity policy and retained findings | The configured gate is not generic credential/secret scanning |
-| GitHub Actions | Job/matrix scheduling and artifacts | Primary/extended/security/docs failure-domain separation and run correlation | Native job/process status remains authoritative |
-
-## Architecture
-
-```mermaid
-flowchart TD
-    TEST[xUnit v3 test] --> SESSION[BrowserTestSession]
-    SESSION --> CFG[TestSettings]
-    SESSION --> FACTORY[WebDriverFactory]
-    FACTORY --> LOCAL[Local Selenium Manager]
-    FACTORY --> GRID[RemoteWebDriver / Grid]
-    TEST --> PAGE[Page objects]
-    PAGE --> WAIT[BrowserWait]
-    PAGE --> DRIVER[IWebDriver]
-    DRIVER --> LOCAL
-    DRIVER --> GRID
-    SESSION --> ART[ArtifactCollector]
-    ART --> OUT[artifacts/<run>/<test>]
-    OUT --> CI[CI evidence / observability]
-
-    classDef entry fill:#ddf4ff,stroke:#0969da,color:#24292f,stroke-width:1.5px;
-    classDef core fill:#f6f8fa,stroke:#57606a,color:#24292f,stroke-width:1.5px;
-    classDef gate fill:#fbefff,stroke:#8250df,color:#24292f,stroke-width:1.5px;
-    classDef evidence fill:#dafbe1,stroke:#1a7f37,color:#24292f,stroke-width:1.5px;
-    class TEST entry;
-    class SESSION,CFG,FACTORY,LOCAL,GRID,PAGE,WAIT,DRIVER,ART core;
-    class OUT,CI evidence;
-    linkStyle default stroke:#57606a,stroke-width:1.4px;
-```
-
-The architecture keeps policy close to the concern that owns it. Browser options belong in the factory, readiness belongs in explicit synchronization, feature locators belong in page objects, and failure evidence belongs at the session boundary where the browser is still alive.
+| Tool / technology | Native responsibility | Framework responsibility |
+| --- | --- | --- |
+| xUnit v3 | Discovery, assertions, fixture/instance lifecycle, scheduling | Collection-owned local UI lifecycle and framework contracts |
+| Selenium WebDriver | Browser protocol, navigation, elements, local/remote sessions | One driver factory, browser policy, deterministic cleanup |
+| Selenium Manager | Local browser-driver resolution | Used only through `WebDriverFactory` |
+| `WebDriverWait` | Bounded condition polling | Observable synchronization policy |
+| .NET networking | TCP/stream primitives | Minimal loopback HTTP fixture for deterministic browser contracts |
+| Chrome / Firefox / Edge | Browser-engine behavior | Primary/extended/local policy |
+| RemoteWebDriver / Grid | Remote command transport | Optional endpoint configuration with the same page/test layer |
+| GitHub Actions | Scheduling and artifacts | Gate separation, correlation, bounded execution |
+| Trivy | Supported vulnerability/misconfiguration analysis | HIGH/CRITICAL remediation gate |
 
 ## Repository map
 
@@ -130,37 +94,33 @@ The architecture keeps policy close to the concern that owns it. Browser options
 │   ├── Diagnostics/ArtifactCollector.cs
 │   ├── Drivers/WebDriverFactory.cs
 │   ├── Execution/BrowserTestSession.cs
-│   └── Synchronization/BrowserWait.cs
+│   ├── Synchronization/BrowserWait.cs
+│   └── Testing/LocalUiServer.cs
 ├── PageObjects/
+│   ├── BasePage.cs
+│   ├── LoginPage.cs
+│   └── HomePage.cs
 ├── Tests/
-│   └── Framework/
+│   ├── Fixtures/LocalUiCollection.cs
+│   ├── Framework/
+│   └── LoginTests.cs
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── TEST_STRATEGY.md
 ├── .github/
-│   ├── scripts/
-│   │   └── validate_readme.py
+│   ├── CODEOWNERS
+│   ├── SECURITY.md
+│   ├── pull_request_template.md
+│   ├── scripts/validate_readme.py
 │   └── workflows/
-│       ├── ci.yml
-│       ├── docs.yml
-│       ├── extended.yml
-│       └── security.yml
+├── CONTRIBUTING.md
 ├── global.json
 └── UiTests.csproj
 ```
 
-## Documentation contract
-
-`.github/workflows/docs.yml` runs a standard-library repository validator on every pull request and `main`. It checks deterministic local facts: Markdown targets stay inside the repository and exist, workflow badges map to committed workflow files, Mermaid blocks have a recognized diagram declaration, `LICENSE` and `.github/SECURITY.md` remain present, static Shields colors are unique within this README, and Security Policy remains GitHub-dark `#24292F`.
-
-External URL availability is intentionally not part of this gate; an upstream website outage is not a .NET/Selenium framework defect.
-
 ## Quick start
 
-Prerequisites:
-
-- a .NET 8 SDK compatible with `global.json`;
-- Chrome, Firefox, or Edge locally, or a reachable Selenium Grid.
+Prerequisites are a compatible .NET 8 SDK plus Chrome, Firefox, or Edge. The default test run starts the repository-owned application fixture automatically through xUnit collection lifecycle.
 
 ```bash
 dotnet restore UiTests.csproj
@@ -168,10 +128,18 @@ dotnet build UiTests.csproj --configuration Release
 dotnet test UiTests.csproj --configuration Release --no-build
 ```
 
-Run Firefox:
+Run Firefox against the same deterministic fixture:
 
 ```bash
 TEST_BROWSER=firefox dotnet test UiTests.csproj
+```
+
+Run against an explicitly selected deployed environment:
+
+```bash
+TEST_BASE_URL=https://test.example.internal \
+TEST_BROWSER=chrome \
+dotnet test UiTests.csproj
 ```
 
 Run through Grid:
@@ -182,270 +150,172 @@ SELENIUM_GRID_URL=http://localhost:4444/wd/hub \
 dotnet test UiTests.csproj
 ```
 
-> [!NOTE]
-> `global.json` is part of the framework contract. It prevents a newer machine-wide SDK from silently changing test-host behavior while the project itself still targets `net8.0`.
-
-<details>
-<summary><strong>Execution and evidence commands</strong></summary>
-
-```bash
-# Restore and compile once
-dotnet restore UiTests.csproj
-dotnet build UiTests.csproj --configuration Release --no-restore
-
-# Documentation contract
-python .github/scripts/validate_readme.py
-
-# CI-equivalent VSTest path with TRX + coverage
-dotnet test UiTests.csproj \
-  --configuration Release \
-  --no-build \
-  --logger "trx;LogFileName=tests.trx" \
-  --results-directory TestResults \
-  --collect "XPlat Code Coverage"
-
-# Alternate browser
-TEST_BROWSER=firefox dotnet test UiTests.csproj
-```
-
-xUnit v3 is used as the test framework. The Visual Studio adapter remains deliberate because the CI evidence contract uses `dotnet test`, TRX, and Coverlet-compatible collection.
-
-</details>
-
 ## Runtime configuration
 
-`Framework/Configuration/TestSettings.cs` is the only production environment-parsing boundary.
+`Framework/Configuration/TestSettings.cs` is the single environment-parsing boundary.
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `TEST_BASE_URL` | Application base URL | `https://www.saucedemo.com` |
+| `TEST_BASE_URL` | Browser application target | `http://127.0.0.1:3200` |
 | `TEST_BROWSER` | `chrome`, `firefox`, or `edge` | `chrome` |
 | `TEST_HEADLESS` | Browser headless mode | `true` |
-| `TEST_EXPLICIT_WAIT_SECONDS` | Explicit synchronization budget | `10` |
+| `TEST_EXPLICIT_WAIT_SECONDS` | Explicit wait budget | `10` |
 | `TEST_PAGE_LOAD_TIMEOUT_SECONDS` | Page-load budget | `30` |
 | `SELENIUM_GRID_URL` | Optional remote WebDriver endpoint | unset |
-| `TEST_RUN_ID` | Diagnostic/artifact correlation | generated GUID |
+| `TEST_RUN_ID` | Run/artifact correlation | generated GUID |
 
-HTTP(S) URLs must be absolute and may not contain user-info, query strings, or fragments. Browser names are allowlisted, durations must be positive, and a supplied run ID must match the bounded correlation-token contract.
+HTTP(S) URLs must be absolute and may not contain user-info, query strings, or fragments. Browser names are allowlisted, duration budgets must be positive, and supplied run IDs must satisfy the bounded correlation-token contract.
 
-### Parallel-safe configuration contracts
+Framework configuration tests inject a read-only lookup instead of mutating process environment. This keeps invalid-configuration tests parallel-safe while browser constructors read the real process environment.
 
-Production calls `TestSettings.FromEnvironment()`. Framework tests use the internal overload that accepts a value lookup. This distinction matters: xUnit v3 may execute tests concurrently, so changing `Environment.SetEnvironmentVariable` inside a configuration-negative test would create process-wide state leakage into a real browser test. The injected lookup proves the parser without modifying global process state.
+## Deterministic application fixture
+
+`Framework/Testing/LocalUiServer.cs` implements the smallest application needed to prove browser-framework behavior using .NET networking primitives only. It binds loopback port `3200` and serves:
+
+- `/health` — fixture readiness;
+- `/` — authentication form;
+- `/inventory.html` — successful-authentication destination.
+
+The fixture exercises real browser navigation, DOM interaction, JavaScript form behavior, URL transition, success state, and rejection state without public DNS, TLS, external accounts, rate limits, or third-party uptime.
+
+`Tests/Fixtures/LocalUiCollection.cs` owns one server for the browser-test collection. The browser test class receives that fixture before constructing its WebDriver session, guaranteeing the default target exists before navigation begins.
+
+The fixture is intentionally application-specific and small. It should not become a general web framework.
+
+## Authentication contract
+
+The browser layer verifies both sides of the boundary:
+
+1. `standard_user` / `secret_sauce` reaches `/inventory.html` and the inventory container;
+2. invalid credentials remain on `/` and expose `Invalid username or password`.
+
+These values are synthetic fixture data. Deployed-environment credentials should come from environment-specific secure configuration and should never be committed or added to generic evidence.
 
 ## Browser lifecycle
 
-`BrowserTestSession` owns the complete browser lifetime:
+`BrowserTestSession` owns one driver from construction through evidence and cleanup:
 
-```csharp
-using var session = new BrowserTestSession();
-var login = new LoginPage(session.Driver, session.Settings);
-
-session.Run("login-contract", () =>
-{
-    login.Navigate();
-    login.Login("user", "credential");
-    // assertions
-});
+```text
+validated settings
+        ↓
+WebDriverFactory
+        ↓
+test body
+   ↙         ↘
+success    failure
+              ↓
+       ArtifactCollector
+              ↓
+       original exception
+        ↓
+Quit + Dispose
 ```
 
-Lifecycle order:
-
-1. validate settings;
-2. create exactly one driver through `WebDriverFactory`;
-3. execute the test body;
-4. on failure, attempt evidence capture while the browser still exists;
-5. preserve/rethrow the original exception;
-6. quit and dispose exactly once;
-7. treat cleanup failure as diagnostic information.
-
-> [!WARNING]
-> A screenshot exception, stale page-source call, or driver shutdown problem must not rewrite the primary assertion/browser failure. The first causal failure is the most valuable signal.
+Evidence/cleanup failure remains secondary diagnostic information. It cannot replace the causal browser/assertion failure.
 
 ## Driver policy
 
-`WebDriverFactory` supports:
+`WebDriverFactory` supports Chrome, Firefox, Edge, and optional `RemoteWebDriver`. Common policy includes zero implicit wait, bounded page-load timeout, deterministic viewport, headless configuration, and Selenium Manager for local resolution.
 
-- `ChromeDriver`;
-- `FirefoxDriver`;
-- `EdgeDriver`;
-- `RemoteWebDriver` for Grid execution.
-
-Common policy includes zero implicit wait, configured page-load timeout, deterministic viewport sizing, headless flags, and Selenium Manager for local driver resolution.
-
-Tests must not instantiate drivers directly. A second construction path creates configuration drift and makes local/Grid/CI behavior diverge.
+Tests must not construct drivers directly; multiple construction paths cause capability, timeout, and Grid behavior to drift.
 
 ## Synchronization model
 
-`BrowserWait` centralizes only synchronization that enforces a genuine policy:
-
-- visible element;
-- clickable element;
-- complete document state;
-- URL transition/readiness.
+`BrowserWait` centralizes observable synchronization such as visible/clickable elements, document readiness, and URL transition. Fixed sleeps and mixed implicit/explicit wait models are prohibited.
 
 ```csharp
 Wait.UntilVisible(By.Id("inventory_container"));
 ```
 
-Avoid:
-
-```csharp
-Thread.Sleep(2000);
-driver.Manage().Timeouts().ImplicitWait = TimeSpan.FromSeconds(5);
-```
-
-A fixed delay only states how long the test waited. An explicit condition states what became true—or what failed to become true within a bounded budget.
+The resulting timeout tells which state did not become true, unlike elapsed-time sleeps.
 
 ## Page-object boundary
 
-Page objects model feature language and stable state:
+Page objects own feature-specific navigation, selectors, and operations. They do not rename every Selenium command.
 
 ```csharp
+loginPage.Navigate();
 loginPage.Login(username, password);
 Assert.True(homePage.IsLoaded);
 ```
 
-They should not become a generic WebDriver façade such as `Click(selector)` / `Type(selector, value)` / `Wait(milliseconds)`. Native Selenium remains visible unless a framework helper enforces a durable policy.
+Native `IWebDriver`, `By`, and Selenium exceptions remain visible where they are the clearest diagnostic surface.
 
-## Cross-browser strategy
+## Evidence and privacy
 
-Primary CI runs Chrome. `extended.yml` runs the complete xUnit v3 suite in Chrome and Firefox on Linux, each with independent TRX, coverage, run ID, and failure evidence.
+On failure, `ArtifactCollector` writes evidence under a bounded run/test-owned path. Diagnostic URL output strips credentials, query strings, and fragments before persistence.
 
-Edge remains a first-class factory option for local/Windows/Grid validation, but it is intentionally not claimed as part of the Linux extended matrix.
-
-Cross-browser expansion is valuable when the risk is browser-specific: rendering, input, navigation, browser APIs, or driver behavior. It is not a reason to repeat every data permutation in every browser.
-
-## Security engineering
-
-`.github/workflows/security.yml` uses the open-source Trivy filesystem scanner. The GitHub Action is pinned to immutable commit `ed142fd0673e97e23eac54620cfb913e5ce36c25` (`v0.36.0`) and explicitly installs Trivy `v0.74.0`.
-
-The blocking policy covers:
-
-- fixed HIGH/CRITICAL dependency vulnerabilities;
-- HIGH/CRITICAL supported repository/configuration misconfigurations.
-
-`ignore-unfixed: true` keeps the gate focused on findings with an available remediation path. JSON evidence is retained under `reports/security/` with a compact Markdown summary. The configured scanners are `vuln,misconfig`; this repository does not claim that workflow as generic credential/secret scanning.
-
-Security findings are their own CI failure domain. Do not change browser assertions or retry policy to make a dependency/configuration finding disappear.
-
-## Evidence and observability
-
-### Failure evidence
-
-```text
-artifacts/<run-id>/<test>/
-├── failure.png
-├── page-source.html
-└── url.txt
-```
-
-Persisted URLs are sanitized to remove user-info, query strings, and fragments while preserving origin/path for diagnosis. Run/test identifiers are additionally sanitized as path segments and the final directory is containment-checked against the configured artifact root. Screenshot and page source content can still contain application-visible values, so test data should be synthetic and non-sensitive.
-
-### CI observability envelope
-
-Primary CI writes:
-
-```text
-artifacts/ci/
-├── observability.json
-└── summary.md
-```
-
-`observability.json` is a small vendor-neutral record containing schema version, framework identity, run ID, runtime dimension, final status, commit SHA, and ref. It is intentionally easy to ingest into later open-source log/telemetry pipelines without making test execution depend on a backend.
-
-### Correlation model
-
-```text
-GitHub Actions run
-└── TEST_RUN_ID
-    ├── xUnit test
-    ├── artifacts/<run>/<test>
-    └── CI observability envelope
-```
+Screenshots and page source may still contain application-visible data. Use synthetic/controlled data and bounded retention; structured URL redaction does not sanitize pixels or arbitrary DOM content.
 
 ## CI topology
 
-```mermaid
-flowchart TD
-    PR[Push / PR] --> SDK[Resolve .NET 8 via global.json]
-    SDK --> RESTORE[Restore]
-    RESTORE --> BUILD[Release build]
-    BUILD --> TEST[Chrome · xUnit v3]
-    TEST --> TRX[TRX + Coverage + Browser evidence]
+Primary CI builds and runs the suite in headless Chrome against the local fixture with TRX and XPlat coverage. Extended CI executes Chrome and Firefox independently against the same deterministic contract.
 
-    PR --> SEC[Trivy security]
-    PR --> DOCS[README contract]
-    BCHANGE[Browser/framework change] --> EXT[Extended]
-    EXT --> CH[Chrome]
-    EXT --> FF[Firefox]
-    CH --> E[Per-browser evidence]
-    FF --> E
+Every browser job has:
 
-    classDef entry fill:#ddf4ff,stroke:#0969da,color:#24292f,stroke-width:1.5px;
-    classDef core fill:#f6f8fa,stroke:#57606a,color:#24292f,stroke-width:1.5px;
-    classDef gate fill:#fbefff,stroke:#8250df,color:#24292f,stroke-width:1.5px;
-    classDef evidence fill:#dafbe1,stroke:#1a7f37,color:#24292f,stroke-width:1.5px;
-    classDef security fill:#ffebe9,stroke:#cf222e,color:#24292f,stroke-width:1.5px;
-    class PR,BCHANGE entry;
-    class SDK,RESTORE,BUILD core;
-    class TEST,EXT,CH,FF,DOCS gate;
-    class SEC security;
-    class TRX,E evidence;
-    linkStyle default stroke:#57606a,stroke-width:1.4px;
-```
+- `contents: read` permissions;
+- concurrency cancellation for superseded runs;
+- bounded runtime;
+- run correlation;
+- retained TRX/coverage/browser evidence;
+- an explicitly identified local target in the CI summary.
 
-## Failure triage
+A deployed-environment run should be a separate integration signal rather than replacing this deterministic gate.
 
-| Signal | Boundary | First action |
-| --- | --- | --- |
-| `TestSettings` exception | Runtime configuration | Correct the invalid value before browser debugging |
-| SDK/restore/build failure | Toolchain/dependency | Verify `global.json`, package graph, compiler output |
-| README contract | Documentation/governance | Fix local reference, workflow badge, Mermaid declaration, governance surface, or palette collision |
-| Driver startup failure | Browser/runtime | Inspect Selenium Manager, browser installation, Grid reachability |
-| Page-load timeout | Environment/application | Inspect target reachability and browser evidence |
-| Explicit wait timeout | UI state/selector | Inspect screenshot, DOM/page source, URL |
-| Assertion failure | Product/test expectation | Preserve assertion and inspect state evidence |
-| Chrome passes, Firefox fails | Browser compatibility | Compare engine-specific behavior before weakening shared logic |
-| Trivy failure | Dependency/configuration risk | Triage the JSON finding/remediation |
-| Evidence capture failure | Diagnostics | Preserve original test failure and fix evidence path separately |
-| Retry-only pass | Nondeterminism | Investigate state leakage, load, timing, shared account/data |
+## Grid policy
+
+Grid changes browser location/transport, not test architecture. Page/test code should not branch merely because a session is remote. Grid availability and capability negotiation are separate failure domains from application behavior.
+
+## Failure classification
+
+| Signal | First interpretation |
+| --- | --- |
+| Configuration contract | Framework input policy |
+| Fixture startup/connection | Repository fixture lifecycle/port ownership |
+| Driver creation | Browser/Selenium Manager/Grid runtime |
+| Explicit-wait timeout | Expected state was not observed |
+| Authentication rejection mismatch | Application rejection/error semantics |
+| Assertion | Browser-visible contract mismatch |
+| Evidence failure | Secondary diagnostic issue |
+| Teardown failure | Session/infrastructure cleanup |
+| Browser-specific failure | Compatibility |
+| External-target-only failure | Environment/integration first |
+
+## Security and documentation governance
+
+`.github/workflows/security.yml` preserves Trivy findings for supported dependency/misconfiguration risks. `.github/workflows/docs.yml` validates repository-local README links, badges, Mermaid declarations, governance files, and palette constraints.
+
+Contribution and change-quality expectations live in [`CONTRIBUTING.md`](CONTRIBUTING.md); repository ownership is explicit in [`.github/CODEOWNERS`](.github/CODEOWNERS).
 
 ## Extension rules
 
-When extending the framework:
+When adding browser behavior:
 
-1. add external configuration to `TestSettings` and test it through the injected lookup;
-2. keep all browser construction in `WebDriverFactory`;
-3. add synchronization only for reusable observable conditions;
-4. preserve one driver per test unless measured evidence justifies another lifecycle;
-5. keep page objects feature-oriented;
-6. preserve primary exception identity through diagnostics and teardown;
-7. keep artifact paths inside the configured root even when identifiers are adversarial;
-8. expand browser matrices only for browser risk;
-9. keep diagnostics bounded and privacy-aware;
-10. preserve deterministic SDK/package selection;
-11. keep security findings independent from behavioral-test tuning;
-12. update README contracts whenever a public command, workflow, tool responsibility, or evidence surface changes.
+1. place the requirement at the lowest layer that can prove it;
+2. keep required CI deterministic and repository-owned;
+3. add fixture behavior only when browser interaction truly needs it;
+4. keep driver construction in `WebDriverFactory`;
+5. use observable waits rather than elapsed time;
+6. keep one clear session/evidence owner;
+7. add negative coverage when rejection semantics matter;
+8. classify deployed-environment tests separately;
+9. preserve evidence privacy and original-exception integrity.
 
 ## Explicit anti-patterns
 
-- nonzero implicit waits;
-- `Thread.Sleep` as synchronization;
-- driver construction inside tests;
-- static/shared `IWebDriver`;
-- process-global environment mutation from parallel tests;
-- path-like unvalidated correlation identifiers;
-- catch-and-ignore around assertions;
-- credentials in URLs/page objects;
-- screenshot-only diagnosis without URL/page state;
-- retries used as the definition of correctness;
-- generic wrappers that hide Selenium without enforcing policy;
-- README claims or badge surfaces not backed by committed repository state.
+- required CI against a public demonstration website;
+- direct driver construction in tests;
+- shared/static WebDriver state;
+- `Thread.Sleep` readiness;
+- non-zero implicit waits combined with explicit waits;
+- evidence exceptions masking test failures;
+- process-global environment mutation in configuration contract tests;
+- credentials/query tokens persisted in generic diagnostics;
+- expanding browser matrices without compatibility risk.
 
 ## Design references
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — component, driver, lifecycle, and evidence boundaries.
-- [`docs/TEST_STRATEGY.md`](docs/TEST_STRATEGY.md) — browser coverage, reliability, isolation, and gate policy.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — settings, fixture, driver, session, page, synchronization, and evidence boundaries.
+- [`docs/TEST_STRATEGY.md`](docs/TEST_STRATEGY.md) — layer selection, deterministic target policy, browser matrix, negative testing, and exit criteria.
 
-> [!TIP]
-> A mature browser framework is not measured by abstraction count. It is measured by how quickly a failed test can be classified, reproduced, and explained without changing the test simply to obtain a different result.
+A strong Selenium framework makes the failing boundary obvious: configuration, fixture lifecycle, browser construction, synchronization, application behavior, evidence, Grid transport, or deployed environment.
