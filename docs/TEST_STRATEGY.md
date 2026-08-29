@@ -9,8 +9,9 @@ The suite uses xUnit v3 for deterministic framework contracts and Selenium for b
 | Category | Primary question | Browser? | Target |
 | --- | --- | ---: | --- |
 | Configuration | Are runtime inputs accepted/rejected safely? | No | None |
-| Diagnostics | Are artifact paths and URL sanitization safe? | No | None |
+| Diagnostics | Are artifact paths, URL sanitization, and evidence defaults safe? | No | None |
 | Driver/session | Does the framework construct, own, and tear down a real browser? | Yes | Local fixture |
+| Browser context | Are cookies, frames, alerts, script execution, and child windows owned correctly? | Yes | Local fixture |
 | Authentication flow | Do acceptance and rejection behave correctly? | Yes | Local fixture |
 | Compatibility | Does the same contract work across engines? | Yes | Local fixture |
 | Environment integration | Does a deployed system satisfy the browser contract? | Yes | Explicit `TEST_BASE_URL` |
@@ -40,8 +41,22 @@ The session/factory combination guarantees:
 - bounded page-load timeout;
 - deterministic viewport;
 - local or Grid execution through one factory;
-- best-effort evidence before teardown;
+- best-effort minimal evidence before teardown;
 - preservation of the original failure.
+
+## Native browser-context capability coverage
+
+Use native Selenium APIs directly when they clearly express a requirement. The deterministic capability suite verifies:
+
+- `IJavaScriptExecutor` for explicit browser-side script execution;
+- cookie creation/readback through `Manage().Cookies`;
+- frame switching followed by `DefaultContent()` restoration;
+- alert text and acceptance;
+- child-window creation and restoration through `BrowserWindowScope`.
+
+`BrowserWindowScope` is justified because a child window has lifecycle ownership that must be deterministic even when assertions fail. It waits with a bounded `WebDriverWait`, closes the child it owns, restores the original handle, and supports idempotent disposal.
+
+Add the Selenium Actions API when product behavior genuinely depends on low-level keyboard, pointer, drag/drop, wheel, or related interaction. Do not add it solely to enumerate Selenium features.
 
 ## Authentication coverage
 
@@ -54,7 +69,7 @@ Negative authentication is a first-class gate because incorrectly accepting inva
 
 ## Synchronization policy
 
-Use explicit waits around observable state: visible/clickable elements, URL transitions, or document/page readiness.
+Use explicit waits around observable state: visible/clickable elements, URL transitions, document/page readiness, alerts, and window-count/handle changes.
 
 Do not use implicit waits, `Thread.Sleep` readiness, arbitrary retry loops, or timeout helpers that swallow causal context.
 
@@ -83,20 +98,24 @@ Inspect failure evidence in this order:
 1. xUnit assertion/stack trace;
 2. sanitized current URL;
 3. screenshot;
-4. page source;
-5. browser/Selenium Manager/Grid logs for session-level failures.
+4. browser/Selenium Manager/Grid logs for session-level failures;
+5. page source only when a caller explicitly opts in for a controlled-data diagnostic case.
 
-Diagnostic URL output strips credentials, query strings, and fragments. Screenshots/page source are not generally redacted and require synthetic or controlled data.
+Generic automatic capture intentionally does **not** persist page source. DOM source can contain hidden inputs, tokens, personal/customer data, or other values not visible in a screenshot. `ArtifactCollector.Capture(..., includePageSource: true)` is therefore an explicit data-handling decision rather than a default failure behavior.
+
+Diagnostic URL output strips credentials, query strings, and fragments. Screenshots remain unredacted visual evidence and require synthetic or controlled data plus bounded retention.
 
 ## Test host and SDK policy
 
-The project targets .NET 8, uses xUnit v3, and commits `global.json`. CI uses `dotnet test`, TRX, and XPlat coverage. SDK/runner/adapter changes are execution-contract changes and require explicit validation.
+The project targets .NET 8, uses xUnit v3, and commits `global.json`. CI installs the current .NET 8 patch line and uses `dotnet test`, TRX, and XPlat coverage. SDK/runner/adapter changes are execution-contract changes and require explicit validation.
 
 ## CI gate
 
 Primary CI restores/builds once and executes the suite in headless Chrome against the local fixture. Extended CI runs Chrome and Firefox independently. Both retain evidence and run with bounded job time.
 
-The browser gate proves xUnit discovery/lifecycle, collection fixtures, page objects, explicit waits, Selenium Manager, driver/session ownership, evidence generation, TRX, and coverage in a real CI browser environment without public-network application coupling.
+The browser gate proves xUnit discovery/lifecycle, collection fixtures, page objects, explicit waits, native browser-context primitives, Selenium Manager, driver/session/window ownership, evidence generation, TRX, and coverage in a real CI browser environment without public-network application coupling.
+
+Security scanning is a separate Trivy gate for repository vulnerability, misconfiguration, and committed-secret findings.
 
 ## Parallelism
 
@@ -113,6 +132,7 @@ If future flows require mutable application state or separate fixture behavior, 
 | Fixture startup/connection | Local target lifecycle or port ownership |
 | Driver creation | Browser/Selenium Manager/Grid runtime |
 | Explicit-wait timeout | Required state was not observed |
+| Frame/alert/window/cookie mismatch | Browser-context ownership/behavior |
 | Auth rejection mismatch | Rejection/error semantics |
 | Assertion | Browser-visible application contract |
 | Evidence capture | Secondary diagnostic issue |
@@ -130,9 +150,11 @@ A browser/framework change is ready when:
 - build succeeds;
 - xUnit discovers and executes the expected tests;
 - configuration/artifact contracts pass without process-global mutation;
+- automatic evidence remains minimal and page-source capture is opt-in;
 - the local fixture lifecycle is deterministic;
 - Chrome browser execution passes;
 - Firefox passes when extended coverage applies;
+- browser-context capability contracts pass without fixed sleeps;
 - both positive and negative authentication contracts pass;
 - TRX and XPlat coverage remain available;
 - no implicit/fixed-wait workaround is introduced;
