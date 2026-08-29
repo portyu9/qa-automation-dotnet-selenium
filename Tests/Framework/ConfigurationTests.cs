@@ -10,7 +10,7 @@ public class ConfigurationTests
     {
         var settings = TestSettings.FromEnvironment(_ => null);
 
-        Assert.True(settings.BaseUrl.IsAbsoluteUri);
+        Assert.Equal(new Uri("http://127.0.0.1:3200"), settings.BaseUrl);
         Assert.Equal("chrome", settings.Browser);
         Assert.True(settings.Headless);
         Assert.True(settings.ExplicitWait > TimeSpan.Zero);

@@ -31,7 +31,7 @@ jobs:
       matrix:
         browser: [chrome, firefox]
     env:
-      TEST_BASE_URL: https://www.saucedemo.com
+      TEST_BASE_URL: http://127.0.0.1:3200
       TEST_BROWSER: ${{ matrix.browser }}
       TEST_HEADLESS: "true"
       TEST_RUN_ID: gha-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.browser }}
@@ -44,7 +44,7 @@ jobs:
         run: dotnet restore UiTests.csproj
       - name: Release build
         run: dotnet build UiTests.csproj --configuration Release --no-restore
-      - name: Run xUnit v3 suite in ${{ matrix.browser }}
+      - name: Run xUnit v3 suite in ${{ matrix.browser }} against repository-owned fixture
         run: >-
           dotnet test UiTests.csproj
           --configuration Release
@@ -62,6 +62,7 @@ jobs:
             echo "- Run ID: \`${TEST_RUN_ID}\`"
             echo "- Browser: \`${{ matrix.browser }}\`"
             echo "- Target framework: \`net8.0\`"
+            echo '- Target: repository-owned loopback fixture'
             echo "- Job status: \`${{ job.status }}\`"
             echo "- Evidence: TRX + Cobertura coverage + browser failure artifacts"
           } | tee "artifacts/ci-${{ matrix.browser }}/summary.md" >> "$GITHUB_STEP_SUMMARY"

@@ -2,117 +2,129 @@
 
 ## Design objective
 
-The UI framework keeps user-flow intent separate from browser/session policy. Tests compose page objects; framework services own configuration, driver creation, synchronization primitives, evidence capture, and deterministic teardown.
+The UI framework separates user-flow intent from execution policy. Tests compose page objects; framework services own configuration, deterministic target lifecycle, driver creation, synchronization, evidence capture, and teardown.
 
 ```mermaid
 flowchart LR
-    T[xUnit v3 tests] --> S[BrowserTestSession]
-    S --> C[TestSettings]
-    S --> F[WebDriverFactory]
-    T --> P[Page objects]
-    P --> W[Explicit wait helpers]
-    P --> D[IWebDriver]
-    F --> D
-    S --> A[ArtifactCollector]
-    A --> E[Failure evidence]
+    TEST[xUnit v3 tests] --> COLLECTION[Local UI collection]
+    COLLECTION --> FIX[LocalUiServer]
+    TEST --> SESSION[BrowserTestSession]
+    SESSION --> CFG[TestSettings]
+    SESSION --> FACTORY[WebDriverFactory]
+    TEST --> PAGE[Page objects]
+    PAGE --> WAIT[BrowserWait]
+    PAGE --> DRIVER[IWebDriver]
+    FACTORY --> DRIVER
+    DRIVER --> FIX
+    SESSION --> ART[ArtifactCollector]
+    ART --> EV[Failure evidence]
 ```
 
-Tests must not instantiate `ChromeDriver`, `FirefoxDriver`, `EdgeDriver`, or `RemoteWebDriver` directly. `WebDriverFactory` is the single browser-construction boundary so local execution and Selenium Grid remain interchangeable.
+The default required path is fully repository-owned: .NET hosts the local fixture, xUnit owns its lifetime, Selenium owns browser automation, and no public application is needed to determine framework health.
 
 ## Runtime and test-host contract
 
-The project targets .NET 8 and uses xUnit v3. `global.json` anchors SDK selection to the .NET 8 `8.0.400` feature band with latest-patch roll-forward. This is a framework invariant rather than a developer convenience: without an SDK constraint, a newer machine-wide SDK can silently change `dotnet test` and Microsoft.Testing.Platform behavior.
+The project targets .NET 8 and uses xUnit v3. `global.json` constrains SDK selection so a newer machine-wide SDK cannot silently alter build/test-host behavior. The CI evidence contract remains `dotnet test` with TRX and XPlat coverage.
 
-The xUnit v3 project is an executable test project. CI currently invokes it through `dotnet test` plus `xunit.runner.visualstudio` so TRX and Coverlet output remain part of the operational evidence model. Test framework, adapter, SDK selection, and evidence collection therefore evolve as one reviewed execution contract.
+Test framework, adapter, SDK selection, fixture lifecycle, browser runtime, and evidence collection are reviewed as one execution contract.
 
 ## Configuration boundary
 
-`TestSettings.FromEnvironment()` converts process inputs into immutable typed state before browser creation.
+`TestSettings.FromEnvironment()` converts process inputs into immutable typed state before driver creation. The default `TEST_BASE_URL` is `http://127.0.0.1:3200`.
 
-Production configuration reads process environment variables through the public zero-argument entry point. The parser itself also accepts an internal read-only variable lookup. Framework-contract tests use that lookup instead of calling `Environment.SetEnvironmentVariable`, preventing process-global test state from racing with parallel browser-test construction.
+A non-default base URL explicitly selects a deployed application. `SELENIUM_GRID_URL` independently selects remote browser transport. Both URL inputs must be safe absolute HTTP(S) URIs without user-info, query strings, or fragments.
 
-`TEST_BASE_URL` and `SELENIUM_GRID_URL` must be absolute HTTP(S) URIs. Optional path prefixes are allowed; URL credentials, query strings, and fragments are rejected. Authentication belongs in an explicit browser/application authentication mechanism, not URL user-info.
+Configuration-contract tests inject a read-only variable lookup instead of mutating process-global environment variables, preserving parallel safety.
 
-Browser names are allowlisted. Wait/page-load budgets must be positive. Boolean parsing is explicit. A configuration error is therefore classified before WebDriver side effects begin.
+## Deterministic target boundary
+
+`Framework/Testing/LocalUiServer.cs` is a minimal loopback HTTP fixture implemented with .NET networking primitives. It provides only the routes and client behavior needed for browser-framework contracts:
+
+- `/health`;
+- `/` authentication form;
+- `/inventory.html` authenticated state.
+
+`Tests/Fixtures/LocalUiCollection.cs` binds the fixture to xUnit collection lifecycle. The browser test constructor receives the fixture before creating the browser session, making target readiness a dependency of test construction rather than an external assumption.
+
+The fixture deliberately excludes public DNS, TLS, external accounts, remote APIs, rate limits, and third-party page changes. Those concerns belong to an explicit environment-integration layer.
 
 ## Driver lifecycle
 
-`WebDriverFactory` owns browser-specific options and local/remote creation. Selenium Manager supplies local driver resolution; no manually pinned browser-driver binary is required.
+`WebDriverFactory` is the only browser construction boundary. Selenium Manager supplies local resolution; optional `RemoteWebDriver` uses the same test/page surface for Grid.
 
-The factory enforces:
+The factory enforces zero implicit wait, bounded page-load timeout, deterministic viewport, supported browser selection, and headless policy.
 
-- zero implicit wait;
-- a bounded page-load timeout;
-- deterministic viewport sizing;
-- supported browser selection;
-- optional Grid execution through the same test surface.
+`BrowserTestSession` owns one driver for one xUnit test instance:
 
-`BrowserTestSession` owns exactly one driver for one xUnit test instance. Its responsibilities are deliberately narrow:
-
-1. load validated settings;
+1. consume validated settings;
 2. create the driver through the factory;
 3. execute a named test body;
-4. attempt failure evidence capture before cleanup;
-5. rethrow the original test exception;
-6. quit/dispose the driver deterministically.
+4. attempt evidence capture if the body fails;
+5. preserve/rethrow the original exception;
+6. quit and dispose exactly once.
 
-Evidence capture is best-effort. If the browser is already unhealthy, a capture exception must never replace the original assertion/browser failure.
+Evidence and cleanup errors remain secondary diagnostics.
 
 ## Synchronization model
 
-Implicit waits remain disabled. Page objects use explicit waits around observable conditions such as:
+Implicit wait remains zero. `BrowserWait` observes explicit conditions such as visibility, clickability, complete document state, and URL transition. Fixed sleeps and mixed implicit/explicit waits are prohibited.
 
-- element visibility;
-- clickability;
-- document readiness;
-- page-specific loaded state.
+A synchronization helper should identify the state that failed to appear, not merely how long the test waited.
 
-Mixing implicit and explicit waits creates compounded, difficult-to-predict latency and is prohibited. Fixed sleeps are also not a synchronization primitive.
+## Page URL and page-object model
 
-Page objects expose application-level operations rather than generic wrappers for every WebDriver method. Locators and waits remain close to the feature that owns them.
+Page destinations derive from `TestSettings.BaseUrl`; page objects contain feature selectors/operations. This allows the same test code to run against the local fixture, a controlled deployment, or Grid-hosted browsers without hard-coded deployment URLs.
 
-## Page URL model
+Page objects should not become a generic Selenium façade. `IWebDriver`, `By`, and native Selenium exceptions remain visible where useful.
 
-Page objects derive destinations from the validated `TestSettings.BaseUrl` rather than hard-coded deployment URLs. This keeps the same flow portable across local, CI, and controlled environment targets while retaining one validation boundary.
+## Authentication contract
+
+The local application models both acceptance and rejection:
+
+- valid synthetic credentials navigate to `/inventory.html`;
+- invalid credentials remain on `/` and expose a stable error.
+
+This ensures the browser gate proves more than successful navigation and gives negative behavior an executable contract.
 
 ## Diagnostic evidence
 
-`ArtifactCollector` stores failure evidence under a run/test-specific directory:
+`ArtifactCollector` stores browser evidence under run/test-specific directories while verifying path containment. Diagnostic URLs are sanitized before persistence by removing user-info, query strings, and fragments.
 
-```text
-artifacts/<run-id>/<test>/
-├── failure.png
-├── page-source.html
-└── url.txt
-```
+Screenshots/page source may contain visible application data and therefore require synthetic/controlled inputs and bounded retention.
 
-The persisted URL is sanitized before writing: HTTP(S) user-info, query strings, and fragments are removed while origin/path are retained. This prevents common token-in-URL patterns from entering CI artifacts.
+## Parallelism and port ownership
 
-Screenshots and page source may still contain application-visible synthetic data. Use safe test accounts/data and bounded artifact retention; URL sanitization is not a substitute for data minimization.
+Each test owns its WebDriver. The local fixture is shared only within the designated collection and binds loopback port `3200` once per test process.
 
-## Parallelism
+Configuration tests do not mutate process environment. If future browser collections need simultaneous distinct application state, use isolated target instances/ports rather than shared mutable server state or globally disabling parallelism.
 
-Each test owns an isolated driver. Static/shared `IWebDriver` instances are prohibited. Mutable application data must also be isolated before browser concurrency is enabled.
+## External target and Grid model
 
-Framework tests must not mutate process-global environment variables as temporary fixtures. Configuration contracts inject a variable lookup, which allows xUnit v3 parallelism to remain enabled without leaking one test's invalid configuration into another test's constructor.
+There are three distinct concerns:
 
-If a specific account or environment cannot support concurrent access, isolate the affected test collection rather than globally disabling xUnit parallelism.
+1. local fixture — required deterministic browser/framework verification;
+2. deployed `TEST_BASE_URL` — explicit application/environment integration;
+3. `SELENIUM_GRID_URL` — browser transport/location choice.
 
-## Grid and browser expansion
+A Grid failure is not automatically an application failure, and a deployed environment outage is not a framework regression.
 
-Grid is a transport/location choice, not a second test architecture. New browser variants belong in `WebDriverFactory` and CI matrices only when compatibility risk justifies them. Page/test code should not branch on whether execution is local or remote.
+## CI boundary
+
+Primary CI runs Chrome against the local fixture. Extended CI runs Chrome and Firefox against the same deterministic contract. Jobs have read-only repository permissions, superseded-run cancellation, explicit time bounds, run IDs, and retained evidence.
+
+The primary job timeout is deliberate: a hung driver/session/server must terminate as infrastructure failure rather than consume runner capacity indefinitely.
 
 ## Extension rules
 
-New framework behavior should satisfy all of the following:
+New framework behavior should:
 
-- external configuration is validated before browser creation;
-- configuration tests use injected reads, not process-wide mutation;
-- browser construction stays inside `WebDriverFactory`;
-- synchronization targets an observable state rather than elapsed time;
-- a helper models application intent or cross-cutting policy rather than mirroring Selenium;
-- driver/evidence lifecycle ownership is explicit;
-- diagnostic output is bounded and privacy-aware;
-- evidence failures cannot mask the original test failure;
-- SDK/test-runner changes preserve a reproducible execution host;
-- a framework-contract test verifies new configuration or diagnostic invariants.
+1. validate configuration before browser side effects;
+2. keep required CI target ownership inside the repository;
+3. use native .NET/xUnit lifecycle for fixture behavior;
+4. keep browser creation inside `WebDriverFactory`;
+5. synchronize to observable state;
+6. preserve one explicit session/evidence owner;
+7. prevent diagnostic failures from masking primary failures;
+8. add negative behavior where rejection semantics matter;
+9. keep external deployment and Grid failures separately attributable;
+10. add contract tests for new configuration, artifact, or lifecycle invariants.

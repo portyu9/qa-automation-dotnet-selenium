@@ -9,6 +9,8 @@ public sealed record TestSettings(
     Uri? GridUrl,
     string RunId)
 {
+    private const string DefaultFixtureUrl = "http://127.0.0.1:3200";
+
     private static readonly HashSet<string> SupportedBrowsers =
         new(StringComparer.OrdinalIgnoreCase) { "chrome", "firefox", "edge" };
 
@@ -19,7 +21,7 @@ public sealed record TestSettings(
     {
         ArgumentNullException.ThrowIfNull(readVariable);
 
-        var baseUrl = ReadAbsoluteUri(readVariable, "TEST_BASE_URL", "https://www.saucedemo.com");
+        var baseUrl = ReadAbsoluteUri(readVariable, "TEST_BASE_URL", DefaultFixtureUrl);
         var browser = readVariable("TEST_BROWSER")?.Trim() ?? "chrome";
         if (!SupportedBrowsers.Contains(browser))
         {
