@@ -8,12 +8,12 @@ public static class ArtifactCollector
         IWebDriver driver,
         string testName,
         string runId,
-        string root = "artifacts")
+        string root = "artifacts",
+        bool includePageSource = false)
     {
         var directory = ResolveDirectory(root, runId, testName);
         Directory.CreateDirectory(directory);
 
-        File.WriteAllText(Path.Combine(directory, "page-source.html"), driver.PageSource);
         File.WriteAllText(
             Path.Combine(directory, "url.txt"),
             SanitizeUrl(driver.Url ?? string.Empty));
@@ -21,6 +21,11 @@ public static class ArtifactCollector
         if (driver is ITakesScreenshot screenshots)
         {
             screenshots.GetScreenshot().SaveAsFile(Path.Combine(directory, "failure.png"));
+        }
+
+        if (includePageSource)
+        {
+            File.WriteAllText(Path.Combine(directory, "page-source.html"), driver.PageSource);
         }
 
         return directory;
