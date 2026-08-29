@@ -55,7 +55,11 @@ public sealed class LocalUiServer : IDisposable
             var task = HandleClientSafelyAsync(client, token);
             activeClients[clientId] = task;
             _ = task.ContinueWith(
-                _ => activeClients.TryRemove(clientId, out _),
+                completedTask =>
+                {
+                    _ = completedTask;
+                    activeClients.TryRemove(clientId, out _);
+                },
                 CancellationToken.None,
                 TaskContinuationOptions.ExecuteSynchronously,
                 TaskScheduler.Default);
@@ -207,7 +211,7 @@ public sealed class LocalUiServer : IDisposable
 
     private const string InventoryPage = """
 <!doctype html>
-<html lang="en">">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
