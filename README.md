@@ -4,18 +4,15 @@
 [![Extended](https://github.com/portyu9/qa-automation-dotnet-selenium/actions/workflows/extended.yml/badge.svg)](https://github.com/portyu9/qa-automation-dotnet-selenium/actions/workflows/extended.yml)
 [![Security](https://github.com/portyu9/qa-automation-dotnet-selenium/actions/workflows/security.yml/badge.svg)](https://github.com/portyu9/qa-automation-dotnet-selenium/actions/workflows/security.yml)
 
-[![C#](https://img.shields.io/badge/C%23-language-512BD4)](https://learn.microsoft.com/dotnet/csharp/)
-[![.NET](https://img.shields.io/badge/.NET-8.0-512BD4)](https://dotnet.microsoft.com/)
-[![xUnit v3](https://img.shields.io/badge/xUnit%20v3-4.0-5C2D91)](https://xunit.net/)
-[![Selenium](https://img.shields.io/badge/Selenium-4.48-43B02A)](https://www.selenium.dev/)
-[![Chrome](https://img.shields.io/badge/Chrome-primary%20browser-4285F4)](https://www.google.com/chrome/)
-[![Firefox](https://img.shields.io/badge/Firefox-extended%20browser-FF7139)](https://www.mozilla.org/firefox/)
-[![Edge](https://img.shields.io/badge/Edge-supported-0078D7)](https://www.microsoft.com/edge)
-[![Coverlet](https://img.shields.io/badge/Coverlet-10.0-6E7781)](https://github.com/coverlet-coverage/coverlet)
-[![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-CI-2088FF)](https://github.com/features/actions)
-[![Trivy](https://img.shields.io/badge/Trivy-security%20scan-1904DA)](https://trivy.dev/)
-[![License](https://img.shields.io/badge/License-MIT-2EA44F)](LICENSE)
-[![Security Policy](https://img.shields.io/badge/Security-Policy-6E7781)](.github/SECURITY.md)
+[![.NET](https://img.shields.io/badge/.NET-runtime-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
+[![xUnit](https://img.shields.io/badge/xUnit-testing-5C2D91)](https://xunit.net/)
+[![Selenium](https://img.shields.io/badge/Selenium-WebDriver-43B02A?logo=selenium&logoColor=white)](https://www.selenium.dev/)
+[![Chrome](https://img.shields.io/badge/Chrome-primary%20browser-4285F4?logo=googlechrome&logoColor=white)](https://www.google.com/chrome/)
+[![Firefox](https://img.shields.io/badge/Firefox-extended%20browser-FF7139?logo=firefoxbrowser&logoColor=white)](https://www.mozilla.org/firefox/)
+[![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-CI-2088FF?logo=githubactions&logoColor=white)](https://github.com/features/actions)
+[![Trivy](https://img.shields.io/badge/Trivy-security-1904DA?logo=trivy&logoColor=white)](https://trivy.dev/)
+[![License](https://img.shields.io/badge/License-MIT-2EA44F?logo=opensourceinitiative&logoColor=white)](LICENSE)
+[![Security Policy](https://img.shields.io/badge/Security-Policy-6E7781?logo=github&logoColor=white)](.github/SECURITY.md)
 
 A C# browser quality-engineering framework built on **xUnit v3**, **Selenium WebDriver**, and a deterministically selected .NET 8 SDK. Runtime configuration, browser construction, synchronization, failure evidence, and teardown are explicit framework boundaries; page objects remain focused on application behavior and native WebDriver semantics remain visible where they are already the clearest abstraction.
 
@@ -43,6 +40,18 @@ flowchart LR
     CH --> EVIDENCE
     FF --> EVIDENCE
     SEC --> EVIDENCE
+
+    classDef entry fill:#ddf4ff,stroke:#0969da,color:#24292f,stroke-width:1.5px;
+    classDef core fill:#f6f8fa,stroke:#57606a,color:#24292f,stroke-width:1.5px;
+    classDef gate fill:#fbefff,stroke:#8250df,color:#24292f,stroke-width:1.5px;
+    classDef evidence fill:#dafbe1,stroke:#1a7f37,color:#24292f,stroke-width:1.5px;
+    classDef security fill:#ffebe9,stroke:#cf222e,color:#24292f,stroke-width:1.5px;
+    class CHANGE entry;
+    class CI core;
+    class EXT,CH,FF gate;
+    class SEC security;
+    class EVIDENCE evidence;
+    linkStyle default stroke:#57606a,stroke-width:1.4px;
 ```
 
 The normal pull-request lane stays intentionally narrow for feedback speed. Browser multiplication is a separate risk-based gate instead of a permanent multiplier on every change.
@@ -78,6 +87,15 @@ flowchart TD
     SESSION --> ART[ArtifactCollector]
     ART --> OUT[artifacts/<run>/<test>]
     OUT --> CI[CI evidence / observability]
+
+    classDef entry fill:#ddf4ff,stroke:#0969da,color:#24292f,stroke-width:1.5px;
+    classDef core fill:#f6f8fa,stroke:#57606a,color:#24292f,stroke-width:1.5px;
+    classDef gate fill:#fbefff,stroke:#8250df,color:#24292f,stroke-width:1.5px;
+    classDef evidence fill:#dafbe1,stroke:#1a7f37,color:#24292f,stroke-width:1.5px;
+    class TEST entry;
+    class SESSION,CFG,FACTORY,LOCAL,GRID,PAGE,WAIT,DRIVER,ART core;
+    class OUT,CI evidence;
+    linkStyle default stroke:#57606a,stroke-width:1.4px;
 ```
 
 The architecture keeps policy close to the concern that owns it. Browser options belong in the factory, readiness belongs in explicit synchronization, feature locators belong in page objects, and failure evidence belongs at the session boundary where the browser is still alive.
@@ -327,6 +345,18 @@ flowchart TD
     EXT --> FF[Firefox]
     CH --> E[Per-browser evidence]
     FF --> E
+
+    classDef entry fill:#ddf4ff,stroke:#0969da,color:#24292f,stroke-width:1.5px;
+    classDef core fill:#f6f8fa,stroke:#57606a,color:#24292f,stroke-width:1.5px;
+    classDef gate fill:#fbefff,stroke:#8250df,color:#24292f,stroke-width:1.5px;
+    classDef evidence fill:#dafbe1,stroke:#1a7f37,color:#24292f,stroke-width:1.5px;
+    classDef security fill:#ffebe9,stroke:#cf222e,color:#24292f,stroke-width:1.5px;
+    class PR,BCHANGE entry;
+    class SDK,RESTORE,BUILD core;
+    class TEST,EXT,CH,FF gate;
+    class SEC security;
+    class TRX,E evidence;
+    linkStyle default stroke:#57606a,stroke-width:1.4px;
 ```
 
 ## Failure triage
