@@ -3,6 +3,7 @@
 [![CI](https://github.com/portyu9/qa-automation-dotnet-selenium/actions/workflows/ci.yml/badge.svg)](https://github.com/portyu9/qa-automation-dotnet-selenium/actions/workflows/ci.yml)
 [![Extended](https://github.com/portyu9/qa-automation-dotnet-selenium/actions/workflows/extended.yml/badge.svg)](https://github.com/portyu9/qa-automation-dotnet-selenium/actions/workflows/extended.yml)
 [![Security](https://github.com/portyu9/qa-automation-dotnet-selenium/actions/workflows/security.yml/badge.svg)](https://github.com/portyu9/qa-automation-dotnet-selenium/actions/workflows/security.yml)
+[![Docs](https://github.com/portyu9/qa-automation-dotnet-selenium/actions/workflows/docs.yml/badge.svg)](https://github.com/portyu9/qa-automation-dotnet-selenium/actions/workflows/docs.yml)
 
 [![.NET](https://img.shields.io/badge/.NET-runtime-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![xUnit](https://img.shields.io/badge/xUnit-testing-5C2D91)](https://xunit.net/)
@@ -12,7 +13,7 @@
 [![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-CI-2088FF?logo=githubactions&logoColor=white)](https://github.com/features/actions)
 [![Trivy](https://img.shields.io/badge/Trivy-security-1904DA?logo=trivy&logoColor=white)](https://trivy.dev/)
 [![License](https://img.shields.io/badge/License-MIT-2EA44F?logo=opensourceinitiative&logoColor=white)](LICENSE)
-[![Security Policy](https://img.shields.io/badge/Security-Policy-6E7781?logo=github&logoColor=white)](.github/SECURITY.md)
+[![Security Policy](https://img.shields.io/badge/Security-Policy-24292F?logo=github&logoColor=white)](.github/SECURITY.md)
 
 A C# browser quality-engineering framework built on **xUnit v3**, **Selenium WebDriver**, and a deterministically selected .NET 8 SDK. Runtime configuration, browser construction, synchronization, failure evidence, and teardown are explicit framework boundaries; page objects remain focused on application behavior and native WebDriver semantics remain visible where they are already the clearest abstraction.
 
@@ -27,12 +28,14 @@ A C# browser quality-engineering framework built on **xUnit v3**, **Selenium Web
 | Extended browser | Browser compatibility | Chrome + Firefox on Linux | Per-browser TRX, coverage, artifacts |
 | Local/Grid | Driver-location portability | Chrome / Firefox / Edge / RemoteWebDriver | Same test/page surface |
 | Security | Dependency and repository-configuration risk | Pinned Trivy filesystem scan | JSON findings + Markdown summary |
+| Documentation contract | README links, workflow badges, Mermaid declarations, governance surfaces, badge palette | Python stdlib validator | Actions status |
 | Observability | Run identity and gate state | Structured CI envelope + run correlation | `artifacts/ci/observability.json`, Actions summary |
 
 ```mermaid
 flowchart LR
     CHANGE[Change] --> CI[Primary CI · Chrome]
     CHANGE --> SEC[Security gate]
+    CHANGE --> DOCS[README contract]
     CHANGE -->|browser/framework paths| EXT[Extended matrix]
     EXT --> CH[Chrome]
     EXT --> FF[Firefox]
@@ -40,6 +43,7 @@ flowchart LR
     CH --> EVIDENCE
     FF --> EVIDENCE
     SEC --> EVIDENCE
+    DOCS --> EVIDENCE
 
     classDef entry fill:#ddf4ff,stroke:#0969da,color:#24292f,stroke-width:1.5px;
     classDef core fill:#f6f8fa,stroke:#57606a,color:#24292f,stroke-width:1.5px;
@@ -48,13 +52,13 @@ flowchart LR
     classDef security fill:#ffebe9,stroke:#cf222e,color:#24292f,stroke-width:1.5px;
     class CHANGE entry;
     class CI core;
-    class EXT,CH,FF gate;
+    class EXT,CH,FF,DOCS gate;
     class SEC security;
     class EVIDENCE evidence;
     linkStyle default stroke:#57606a,stroke-width:1.4px;
 ```
 
-The normal pull-request lane stays intentionally narrow for feedback speed. Browser multiplication is a separate risk-based gate instead of a permanent multiplier on every change.
+The normal pull-request lane stays intentionally narrow for feedback speed. Browser multiplication is a separate risk-based gate instead of a permanent multiplier on every change; documentation and security stay independent so their failures cannot be misclassified as browser behavior.
 
 ## Engineering invariants
 
@@ -62,13 +66,30 @@ The normal pull-request lane stays intentionally narrow for feedback speed. Brow
 | --- | --- |
 | Runtime inputs | `TestSettings` validates and normalizes all environment-derived values before WebDriver creation. |
 | Configuration testing | Contract tests inject a read-only variable lookup; they never mutate process-global environment state. |
+| Correlation | `TEST_RUN_ID` is a bounded ASCII token; unsafe path-like values fail before driver creation. |
 | Browser construction | `WebDriverFactory` is the only driver-construction boundary. |
 | Toolchain | `global.json` anchors SDK selection to the .NET 8 feature band; package versions are explicit. |
 | Synchronization | Implicit wait is zero; bounded explicit waits observe visibility, clickability, document, or URL state. |
 | Isolation | One xUnit test instance owns one browser session; no static/shared driver state. |
 | Failure evidence | Screenshot, page source, and sanitized URL are captured before teardown on failure. |
+| Artifact containment | Run/test identifiers are sanitized and the resolved evidence path is verified to remain inside its configured root. |
 | Exception integrity | Evidence/cleanup failures are secondary diagnostics and cannot mask the primary test exception. |
 | Cross-browser | Chrome, Firefox, and Edge share one factory; CI matrix breadth is a policy choice, not test-code branching. |
+| Documentation | README-local references, workflow badges, Mermaid roots, governance files, and static badge-color uniqueness are executable contracts. |
+
+## Tool ownership model
+
+| Tool / technology | Native responsibility | Framework responsibility | Deliberately left visible |
+| --- | --- | --- | --- |
+| xUnit v3 | Test discovery, instance lifecycle, parallel scheduling, assertions, failure reporting | Browser-session fixture pattern, injected configuration tests, framework contracts | Native test identity, exception/stack semantics, xUnit concurrency model |
+| Selenium WebDriver | Browser protocol, driver commands, element interaction, navigation | Single driver factory, local/Grid selection, browser options, deterministic teardown | `IWebDriver`, `By`, native driver exceptions, protocol behavior |
+| Selenium Manager | Local driver/browser resolution | Used only through the local factory path | Resolution failures remain Selenium/runtime failures rather than framework retries |
+| `WebDriverWait` | Polling a condition until success/timeout | Reusable observable wait policies with zero implicit wait | The actual predicate and timeout failure remain inspectable |
+| Chrome / Firefox / Edge | Browser-engine behavior | Matrix policy and consistent capabilities | Engine-specific rendering/input/navigation differences |
+| RemoteWebDriver / Grid | Remote session negotiation and command transport | Optional endpoint configuration and the same page/test surface | Grid availability/capability negotiation remains a distinct failure domain |
+| .NET SDK / NuGet | Compilation, restore, runtime host, dependency graph | `global.json`, explicit packages, release-build/test commands | Compiler/restore diagnostics are not wrapped into browser errors |
+| Trivy | Filesystem vulnerability and supported misconfiguration analysis | Blocking severity policy and retained findings | The configured gate is not generic credential/secret scanning |
+| GitHub Actions | Job/matrix scheduling and artifacts | Primary/extended/security/docs failure-domain separation and run correlation | Native job/process status remains authoritative |
 
 ## Architecture
 
@@ -116,13 +137,23 @@ The architecture keeps policy close to the concern that owns it. Browser options
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── TEST_STRATEGY.md
-├── .github/workflows/
-│   ├── ci.yml
-│   ├── extended.yml
-│   └── security.yml
+├── .github/
+│   ├── scripts/
+│   │   └── validate_readme.py
+│   └── workflows/
+│       ├── ci.yml
+│       ├── docs.yml
+│       ├── extended.yml
+│       └── security.yml
 ├── global.json
 └── UiTests.csproj
 ```
+
+## Documentation contract
+
+`.github/workflows/docs.yml` runs a standard-library repository validator on every pull request and `main`. It checks deterministic local facts: Markdown targets stay inside the repository and exist, workflow badges map to committed workflow files, Mermaid blocks have a recognized diagram declaration, `LICENSE` and `.github/SECURITY.md` remain present, static Shields colors are unique within this README, and Security Policy remains GitHub-dark `#24292F`.
+
+External URL availability is intentionally not part of this gate; an upstream website outage is not a .NET/Selenium framework defect.
 
 ## Quick start
 
@@ -162,6 +193,9 @@ dotnet test UiTests.csproj
 dotnet restore UiTests.csproj
 dotnet build UiTests.csproj --configuration Release --no-restore
 
+# Documentation contract
+python .github/scripts/validate_readme.py
+
 # CI-equivalent VSTest path with TRX + coverage
 dotnet test UiTests.csproj \
   --configuration Release \
@@ -192,7 +226,7 @@ xUnit v3 is used as the test framework. The Visual Studio adapter remains delibe
 | `SELENIUM_GRID_URL` | Optional remote WebDriver endpoint | unset |
 | `TEST_RUN_ID` | Diagnostic/artifact correlation | generated GUID |
 
-HTTP(S) URLs must be absolute and may not contain user-info, query strings, or fragments. Browser names are allowlisted and durations must be positive.
+HTTP(S) URLs must be absolute and may not contain user-info, query strings, or fragments. Browser names are allowlisted, durations must be positive, and a supplied run ID must match the bounded correlation-token contract.
 
 ### Parallel-safe configuration contracts
 
@@ -290,7 +324,7 @@ The blocking policy covers:
 - fixed HIGH/CRITICAL dependency vulnerabilities;
 - HIGH/CRITICAL supported repository/configuration misconfigurations.
 
-`ignore-unfixed: true` keeps the gate focused on findings with an available remediation path. JSON evidence is retained under `reports/security/` with a compact Markdown summary.
+`ignore-unfixed: true` keeps the gate focused on findings with an available remediation path. JSON evidence is retained under `reports/security/` with a compact Markdown summary. The configured scanners are `vuln,misconfig`; this repository does not claim that workflow as generic credential/secret scanning.
 
 Security findings are their own CI failure domain. Do not change browser assertions or retry policy to make a dependency/configuration finding disappear.
 
@@ -305,7 +339,7 @@ artifacts/<run-id>/<test>/
 └── url.txt
 ```
 
-Persisted URLs are sanitized to remove user-info, query strings, and fragments while preserving origin/path for diagnosis. Screenshot and page source content can still contain application-visible values, so test data should be synthetic and non-sensitive.
+Persisted URLs are sanitized to remove user-info, query strings, and fragments while preserving origin/path for diagnosis. Run/test identifiers are additionally sanitized as path segments and the final directory is containment-checked against the configured artifact root. Screenshot and page source content can still contain application-visible values, so test data should be synthetic and non-sensitive.
 
 ### CI observability envelope
 
@@ -340,6 +374,7 @@ flowchart TD
     TEST --> TRX[TRX + Coverage + Browser evidence]
 
     PR --> SEC[Trivy security]
+    PR --> DOCS[README contract]
     BCHANGE[Browser/framework change] --> EXT[Extended]
     EXT --> CH[Chrome]
     EXT --> FF[Firefox]
@@ -353,7 +388,7 @@ flowchart TD
     classDef security fill:#ffebe9,stroke:#cf222e,color:#24292f,stroke-width:1.5px;
     class PR,BCHANGE entry;
     class SDK,RESTORE,BUILD core;
-    class TEST,EXT,CH,FF gate;
+    class TEST,EXT,CH,FF,DOCS gate;
     class SEC security;
     class TRX,E evidence;
     linkStyle default stroke:#57606a,stroke-width:1.4px;
@@ -365,6 +400,7 @@ flowchart TD
 | --- | --- | --- |
 | `TestSettings` exception | Runtime configuration | Correct the invalid value before browser debugging |
 | SDK/restore/build failure | Toolchain/dependency | Verify `global.json`, package graph, compiler output |
+| README contract | Documentation/governance | Fix local reference, workflow badge, Mermaid declaration, governance surface, or palette collision |
 | Driver startup failure | Browser/runtime | Inspect Selenium Manager, browser installation, Grid reachability |
 | Page-load timeout | Environment/application | Inspect target reachability and browser evidence |
 | Explicit wait timeout | UI state/selector | Inspect screenshot, DOM/page source, URL |
@@ -384,10 +420,12 @@ When extending the framework:
 4. preserve one driver per test unless measured evidence justifies another lifecycle;
 5. keep page objects feature-oriented;
 6. preserve primary exception identity through diagnostics and teardown;
-7. expand browser matrices only for browser risk;
-8. keep diagnostics bounded and privacy-aware;
-9. preserve deterministic SDK/package selection;
-10. keep security findings independent from behavioral-test tuning.
+7. keep artifact paths inside the configured root even when identifiers are adversarial;
+8. expand browser matrices only for browser risk;
+9. keep diagnostics bounded and privacy-aware;
+10. preserve deterministic SDK/package selection;
+11. keep security findings independent from behavioral-test tuning;
+12. update README contracts whenever a public command, workflow, tool responsibility, or evidence surface changes.
 
 ## Explicit anti-patterns
 
@@ -396,11 +434,13 @@ When extending the framework:
 - driver construction inside tests;
 - static/shared `IWebDriver`;
 - process-global environment mutation from parallel tests;
+- path-like unvalidated correlation identifiers;
 - catch-and-ignore around assertions;
 - credentials in URLs/page objects;
 - screenshot-only diagnosis without URL/page state;
 - retries used as the definition of correctness;
-- generic wrappers that hide Selenium without enforcing policy.
+- generic wrappers that hide Selenium without enforcing policy;
+- README claims or badge surfaces not backed by committed repository state.
 
 ## Design references
 
