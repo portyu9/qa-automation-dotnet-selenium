@@ -11,6 +11,11 @@ public static class ArtifactCollector
         string root = "artifacts",
         bool includePageSource = false)
     {
+        ArgumentNullException.ThrowIfNull(driver);
+        ArgumentException.ThrowIfNullOrWhiteSpace(testName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(runId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(root);
+
         var directory = ResolveDirectory(root, runId, testName);
         Directory.CreateDirectory(directory);
 
@@ -33,6 +38,10 @@ public static class ArtifactCollector
 
     internal static string ResolveDirectory(string root, string runId, string testName)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(root);
+        ArgumentException.ThrowIfNullOrWhiteSpace(runId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(testName);
+
         var rootPath = Path.GetFullPath(root);
         var directory = Path.GetFullPath(Path.Combine(
             rootPath,
