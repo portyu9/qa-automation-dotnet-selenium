@@ -83,6 +83,7 @@ public sealed class LocalUiServer : IDisposable
             {
                 "/" => (200, "OK", "text/html; charset=utf-8", LoginPage),
                 "/inventory.html" => (200, "OK", "text/html; charset=utf-8", InventoryPage),
+                "/interactions.html" => (200, "OK", "text/html; charset=utf-8", InteractionsPage),
                 "/health" => (200, "OK", "application/json; charset=utf-8", "{\"status\":\"ok\"}"),
                 _ => (404, "Not Found", "text/plain; charset=utf-8", "Not Found")
             };
@@ -187,6 +188,29 @@ public sealed class LocalUiServer : IDisposable
     <article><h2>Fixture Item A</h2></article>
     <article><h2>Fixture Item B</h2></article>
   </main>
+</body>
+</html>
+""";
+
+    private const string InteractionsPage = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Browser Capability Surface</title>
+</head>
+<body>
+  <main>
+    <h1 id="capability-title">Browser Capability Surface</h1>
+    <button id="open-alert" type="button">Open alert</button>
+    <button id="open-popup" type="button">Open inventory window</button>
+    <iframe id="details-frame" title="Capability frame" srcdoc="<p id='frame-value'>frame-ready</p>"></iframe>
+  </main>
+  <script>
+    document.getElementById('open-alert').addEventListener('click', () => alert('fixture-alert'));
+    document.getElementById('open-popup').addEventListener('click', () => window.open('/inventory.html', '_blank'));
+  </script>
 </body>
 </html>
 """;
