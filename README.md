@@ -195,20 +195,22 @@ These values are synthetic fixture data. Deployed-environment credentials should
 
 `BrowserTestSession` owns one driver from construction through evidence and cleanup:
 
-```text
-validated settings
-        ↓
-WebDriverFactory
-        ↓
-test body
-   ↙         ↘
-success    failure
-              ↓
-       ArtifactCollector
-              ↓
-       original exception
-        ↓
-Quit + Dispose
+```mermaid
+flowchart TD
+    CFG[Validated settings] --> DRIVER[WebDriverFactory]
+    DRIVER --> TEST[Test body]
+    TEST -->|Pass| CLEANUP[Quit and Dispose]
+    TEST -->|Fail| EVIDENCE[ArtifactCollector]
+    EVIDENCE --> ERROR[Preserve original exception]
+    ERROR --> CLEANUP
+
+    classDef lifecycle fill:#f6f8fa,stroke:#57606a,color:#24292f,stroke-width:1.5px;
+    classDef success fill:#dafbe1,stroke:#1a7f37,color:#24292f,stroke-width:1.5px;
+    classDef failure fill:#ffebe9,stroke:#cf222e,color:#24292f,stroke-width:1.5px;
+    class CFG,DRIVER,TEST lifecycle;
+    class CLEANUP success;
+    class EVIDENCE,ERROR failure;
+    linkStyle default stroke:#57606a,stroke-width:1.4px;
 ```
 
 Evidence/cleanup failure remains secondary diagnostic information. It cannot replace the causal browser/assertion failure.
