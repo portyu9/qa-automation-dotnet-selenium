@@ -61,10 +61,19 @@ public static class ArtifactCollector
 
     internal static string SanitizeUrl(string value)
     {
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
-            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        if (string.Equals(value, "about:blank", StringComparison.OrdinalIgnoreCase))
         {
-            return value;
+            return "about:blank";
+        }
+
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri))
+        {
+            return "<invalid-url>";
+        }
+
+        if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+        {
+            return $"{uri.Scheme}:<redacted>";
         }
 
         var builder = new UriBuilder(uri)
