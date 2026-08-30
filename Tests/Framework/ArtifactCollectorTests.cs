@@ -14,8 +14,10 @@ public class ArtifactCollectorTests
     [InlineData(
         "http://localhost:8080/api/items?token=secret",
         "http://localhost:8080/api/items")]
+    [InlineData("data:text/html,<input value=secret>", "data:<redacted>")]
+    [InlineData("not a url", "<invalid-url>")]
     [InlineData("about:blank", "about:blank")]
-    public void SanitizeUrlRemovesSensitiveHttpUrlComponents(
+    public void SanitizeUrlRetainsOnlySafeDiagnosticContext(
         string raw,
         string expected)
     {
