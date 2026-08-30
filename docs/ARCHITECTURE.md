@@ -34,7 +34,7 @@ Test framework, adapter, SDK selection, fixture lifecycle, browser runtime, and 
 
 `TestSettings.FromEnvironment()` converts process inputs into immutable typed state before driver creation. The default `TEST_BASE_URL` is `http://127.0.0.1:3200`.
 
-A non-default base URL explicitly selects a deployed application. `SELENIUM_GRID_URL` independently selects remote browser transport. Both URL inputs must be safe absolute HTTP(S) URIs without user-info, query strings, or fragments.
+A non-default base URL explicitly selects a deployed application. `SELENIUM_GRID_URL` independently selects remote browser transport. Both URL inputs must be safe absolute HTTP(S) URIs with a hostname, no user-info/query/fragment, and no explicit port `0`.
 
 Run IDs are bounded safe correlation tokens because they are reused for evidence paths and CI correlation. Configuration-contract tests inject a read-only variable lookup instead of mutating process-global environment variables, preserving parallel safety.
 
@@ -43,6 +43,10 @@ Run IDs are bounded safe correlation tokens because they are reused for evidence
 `Framework/Testing/LocalUiServer.cs` is a minimal loopback HTTP fixture implemented with .NET networking primitives. It provides deterministic routes for authentication and explicit browser-context capabilities, including frames, alerts, and a controlled child window.
 
 `Tests/Fixtures/LocalUiCollection.cs` binds the fixture to xUnit collection lifecycle. The browser test constructor receives the fixture before creating the browser session, making target readiness a dependency of test construction rather than an external assumption.
+
+Accepted TCP clients are tracked as owned tasks rather than fire-and-forget work. During disposal the fixture cancels the accept loop, stops the listener, waits for the accept loop to finish, and then drains the current owned client tasks before releasing the cancellation source. Expected cancellation/transport teardown exceptions are handled only in the cancellation path; unrelated client faults are not silently converted to success.
+
+This prevents collection teardown from completing while request work owned by the fixture is still running.
 
 The fixture deliberately excludes public DNS, TLS, external accounts, remote APIs, rate limits, and third-party page changes. Those concerns belong to an explicit environment-integration layer.
 
@@ -100,7 +104,7 @@ This ensures the browser gate proves more than successful navigation and gives n
 
 ## Diagnostic evidence
 
-`ArtifactCollector` stores browser evidence under run/test-specific directories while verifying path containment. Diagnostic URLs are sanitized before persistence by removing user-info, query strings, and fragments.
+`ArtifactCollector` stores browser evidence under run/test-specific directories while verifying path containment before evidence is written. Diagnostic URLs are sanitized before persistence by removing user-info, query strings, and fragments.
 
 The automatic failure contract is intentionally minimal:
 
@@ -113,7 +117,7 @@ Screenshots can also contain visible application data and therefore still requir
 
 ## Parallelism and port ownership
 
-Each test owns its WebDriver. The local fixture is shared only within the designated collection and binds loopback port `3200` once per test process.
+Each test owns its WebDriver. The local fixture is shared only within the designated collection and binds loopback port `3200` once per test process. The fixture owns both its listener/accept loop and the accepted client tasks it creates; collection disposal drains those tasks instead of leaving background request work behind.
 
 Configuration tests do not mutate process environment. If future browser collections need simultaneous distinct application state, use isolated target instances/ports rather than shared mutable server state or globally disabling parallelism.
 
@@ -138,13 +142,15 @@ Repository security scanning is a separate Trivy gate for vulnerability, misconf
 New framework behavior should:
 
 1. validate configuration before browser side effects;
-2. keep required CI target ownership inside the repository;
-3. use native .NET/xUnit lifecycle for fixture behavior;
-4. keep browser creation inside `WebDriverFactory`;
-5. synchronize to observable state;
-6. preserve one explicit session/window/evidence owner;
-7. keep automatic evidence minimal and require explicit opt-in for richer DOM data;
-8. prevent diagnostic failures from masking primary failures;
-9. add negative behavior where rejection semantics matter;
-10. keep external deployment and Grid failures separately attributable;
-11. add contract tests for new configuration, artifact, or lifecycle invariants.
+2. reject unusable explicit target/Grid ports before session creation;
+3. keep required CI target ownership inside the repository;
+4. use native .NET/xUnit lifecycle for fixture behavior;
+5. track and drain asynchronous work owned by fixtures before teardown completes;
+6. keep browser creation inside `WebDriverFactory`;
+7. synchronize to observable state;
+8. preserve one explicit session/window/evidence owner;
+9. keep automatic evidence minimal and require explicit opt-in for richer DOM data;
+10. prevent diagnostic failures from masking primary failures;
+11. add negative behavior where rejection semantics matter;
+12. keep external deployment and Grid failures separately attributable;
+13. add contract tests for new configuration, artifact, or lifecycle invariants.
