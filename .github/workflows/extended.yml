@@ -10,6 +10,7 @@ on:
       - "Tests/**"
       - "UiTests.csproj"
       - "global.json"
+      - "packages.lock.json"
       - ".github/workflows/extended.yml"
   schedule:
     - cron: "47 7 * * 3"
@@ -40,8 +41,8 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: 8.0.424
-      - name: Restore
-        run: dotnet restore UiTests.csproj
+      - name: Restore locked dependency graph
+        run: dotnet restore UiTests.csproj --locked-mode
       - name: Release build
         run: dotnet build UiTests.csproj --configuration Release --no-restore
       - name: Run xUnit v3 suite in ${{ matrix.browser }} against repository-owned fixture
@@ -62,6 +63,7 @@ jobs:
             echo "- Run ID: \`${TEST_RUN_ID}\`"
             echo "- Browser: \`${{ matrix.browser }}\`"
             echo '- SDK: `8.0.424` (global.json exact pin)'
+            echo '- NuGet: committed dependency graph + `--locked-mode`'
             echo "- Target framework: \`net8.0\`"
             echo '- Target: repository-owned loopback fixture'
             echo "- Job status: \`${{ job.status }}\`"
