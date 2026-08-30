@@ -107,7 +107,7 @@ Inspect failure evidence in this order:
 
 Generic automatic capture intentionally does **not** persist page source. DOM source can contain hidden inputs, tokens, personal/customer data, or other values not visible in a screenshot. `ArtifactCollector.Capture(..., includePageSource: true)` is therefore an explicit data-handling decision rather than a default failure behavior.
 
-Artifact path identity is validated before any evidence write. Diagnostic URL output strips credentials, query strings, and fragments. Screenshots remain unredacted visual evidence and require synthetic or controlled data plus bounded retention.
+Artifact path identity is validated before any evidence write. HTTP(S) diagnostic URLs drop credentials, query strings, and fragments; non-HTTP URLs are reduced to a scheme-only redacted sentinel, while `about:blank` is preserved. Screenshots remain unredacted visual evidence and require synthetic or controlled data plus bounded retention.
 
 ## Test host and SDK policy
 
