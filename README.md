@@ -177,6 +177,7 @@ flowchart TD
     TEST -->|Fail| EVIDENCE[ArtifactCollector]
     EVIDENCE --> ERROR[Preserve original exception]
     ERROR --> CLEANUP
+
     classDef lifecycle fill:#f6f8fa,stroke:#57606a,color:#24292f,stroke-width:1.5px;
     classDef success fill:#dafbe1,stroke:#1a7f37,color:#24292f,stroke-width:1.5px;
     classDef failure fill:#ffebe9,stroke:#cf222e,color:#24292f,stroke-width:1.5px;
