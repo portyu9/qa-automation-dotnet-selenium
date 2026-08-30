@@ -21,11 +21,13 @@ The suite uses xUnit v3 for deterministic framework contracts and Selenium for b
 
 Required Chrome/Firefox gates use `http://127.0.0.1:3200`, served by `LocalUiServer`. xUnit collection lifecycle starts the server before browser-test construction and disposes it after the collection.
 
+The fixture owns accepted TCP request tasks as well as the listener. Disposal cancels/stops acceptance and drains the owned client tasks before teardown completes, so a green collection cannot leave repository-fixture request work running in the background.
+
 The required gate therefore excludes public DNS/TLS, demonstration-site changes, external accounts, rate limiting, and third-party availability. Those risks belong to explicitly selected environment tests.
 
 ## Configuration-negative testing
 
-Configuration tests prove failure before WebDriver creation. They cover unsupported browsers, unsafe/malformed base URLs, credentials, query/fragment-bearing URLs, unsafe Grid URLs, and invalid run identifiers.
+Configuration tests prove failure before WebDriver creation. They cover unsupported browsers, unsafe/malformed base URLs, credentials, query/fragment-bearing URLs, explicit port `0`, unsafe Grid URLs, and invalid run identifiers.
 
 Tests inject a variable lookup instead of mutating process environment, preventing invalid test values from leaking into concurrently constructed browser sessions.
 
@@ -43,6 +45,8 @@ The session/factory combination guarantees:
 - local or Grid execution through one factory;
 - best-effort minimal evidence before teardown;
 - preservation of the original failure.
+
+The local fixture lifecycle separately guarantees that its listener, accept loop, and accepted request tasks have explicit ownership and teardown.
 
 ## Native browser-context capability coverage
 
@@ -89,7 +93,7 @@ Do not replace the deterministic required CI lane with a public endpoint merely 
 
 ## Grid policy
 
-`SELENIUM_GRID_URL` changes session transport/location, not application semantics. A Grid connection/capability failure is a separate failure class from a browser-visible application assertion.
+`SELENIUM_GRID_URL` changes session transport/location, not application semantics. A Grid connection/capability failure is a separate failure class from a browser-visible application assertion. Explicit port `0` is rejected for both application and Grid targets before driver creation.
 
 ## Evidence policy
 
@@ -103,7 +107,7 @@ Inspect failure evidence in this order:
 
 Generic automatic capture intentionally does **not** persist page source. DOM source can contain hidden inputs, tokens, personal/customer data, or other values not visible in a screenshot. `ArtifactCollector.Capture(..., includePageSource: true)` is therefore an explicit data-handling decision rather than a default failure behavior.
 
-Diagnostic URL output strips credentials, query strings, and fragments. Screenshots remain unredacted visual evidence and require synthetic or controlled data plus bounded retention.
+Artifact path identity is validated before any evidence write. Diagnostic URL output strips credentials, query strings, and fragments. Screenshots remain unredacted visual evidence and require synthetic or controlled data plus bounded retention.
 
 ## Test host and SDK policy
 
@@ -113,13 +117,13 @@ The project targets .NET 8, uses xUnit v3, and commits `global.json`. CI install
 
 Primary CI restores/builds once and executes the suite in headless Chrome against the local fixture. Extended CI runs Chrome and Firefox independently. Both retain evidence and run with bounded job time.
 
-The browser gate proves xUnit discovery/lifecycle, collection fixtures, page objects, explicit waits, native browser-context primitives, Selenium Manager, driver/session/window ownership, evidence generation, TRX, and coverage in a real CI browser environment without public-network application coupling.
+The browser gate proves xUnit discovery/lifecycle, collection fixtures, page objects, explicit waits, native browser-context primitives, Selenium Manager, driver/session/window ownership, fixture-client draining, evidence generation, TRX, and coverage in a real CI browser environment without public-network application coupling.
 
 Security scanning is a separate Trivy gate for repository vulnerability, misconfiguration, and committed-secret findings.
 
 ## Parallelism
 
-One driver per test is the minimum isolation boundary. The local UI server is shared only by the designated browser collection; framework tests remain independent and do not mutate global environment.
+One driver per test is the minimum isolation boundary. The local UI server is shared only by the designated browser collection; framework tests remain independent and do not mutate global environment. The server does not declare teardown complete while accepted request tasks are still owned by it.
 
 If future flows require mutable application state or separate fixture behavior, isolate state/ports explicitly rather than sharing a static driver or disabling all xUnit parallelism.
 
@@ -130,6 +134,7 @@ If future flows require mutable application state or separate fixture behavior, 
 | Configuration | Framework input policy |
 | SDK/test host | Toolchain selection |
 | Fixture startup/connection | Local target lifecycle or port ownership |
+| Fixture client-drain/teardown | Owned asynchronous fixture cleanup |
 | Driver creation | Browser/Selenium Manager/Grid runtime |
 | Explicit-wait timeout | Required state was not observed |
 | Frame/alert/window/cookie mismatch | Browser-context ownership/behavior |
@@ -150,8 +155,9 @@ A browser/framework change is ready when:
 - build succeeds;
 - xUnit discovers and executes the expected tests;
 - configuration/artifact contracts pass without process-global mutation;
+- explicit application/Grid port `0` is rejected before driver creation;
 - automatic evidence remains minimal and page-source capture is opt-in;
-- the local fixture lifecycle is deterministic;
+- the local fixture lifecycle is deterministic and drains owned client tasks;
 - Chrome browser execution passes;
 - Firefox passes when extended coverage applies;
 - browser-context capability contracts pass without fixed sleeps;
