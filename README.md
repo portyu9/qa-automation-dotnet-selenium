@@ -96,21 +96,21 @@ flowchart LR
 
 ```text
 .
+├── .github/
+│   ├── scripts/
+│   └── workflows/
+├── docs/
 ├── Framework/
-│   ├── Configuration/TestSettings.cs
-│   ├── Diagnostics/ArtifactCollector.cs
-│   ├── Drivers/WebDriverFactory.cs
-│   ├── Execution/{BrowserTestSession.cs,BrowserWindowScope.cs}
-│   ├── Synchronization/BrowserWait.cs
-│   └── Testing/LocalUiServer.cs
-├── PageObjects/{BasePage.cs,LoginPage.cs,HomePage.cs}
-├── Tests/{Fixtures,Framework}/
-├── Tests/{LoginTests.cs,SeleniumCapabilitiesTests.cs}
-├── docs/{ARCHITECTURE.md,TEST_STRATEGY.md}
-├── .github/workflows/{ci,docs,extended,security}.yml
-├── CONTRIBUTING.md
-├── global.json
-└── UiTests.csproj
+│   ├── Configuration/
+│   ├── Diagnostics/
+│   ├── Drivers/
+│   ├── Execution/
+│   ├── Synchronization/
+│   └── Testing/
+├── PageObjects/
+└── Tests/
+    ├── Fixtures/
+    └── Framework/
 ```
 
 ## Quick start
@@ -177,7 +177,6 @@ flowchart TD
     TEST -->|Fail| EVIDENCE[ArtifactCollector]
     EVIDENCE --> ERROR[Preserve original exception]
     ERROR --> CLEANUP
-
     classDef lifecycle fill:#f6f8fa,stroke:#57606a,color:#24292f,stroke-width:1.5px;
     classDef success fill:#dafbe1,stroke:#1a7f37,color:#24292f,stroke-width:1.5px;
     classDef failure fill:#ffebe9,stroke:#cf222e,color:#24292f,stroke-width:1.5px;
