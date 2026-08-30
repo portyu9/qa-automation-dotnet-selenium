@@ -56,7 +56,9 @@ public class ConfigurationTests
     [InlineData("TEST_BASE_URL", "https://user:password@example.test")]
     [InlineData("TEST_BASE_URL", "https://example.test/app?access_token=secret")]
     [InlineData("TEST_BASE_URL", "https://example.test/app#fragment")]
+    [InlineData("TEST_BASE_URL", "https://example.test:0/app")]
     [InlineData("SELENIUM_GRID_URL", "https://grid.example.test/wd/hub?token=secret")]
+    [InlineData("SELENIUM_GRID_URL", "https://grid.example.test:0/wd/hub")]
     public void UnsafeFrameworkUrlsFailBeforeDriverCreation(string name, string value)
     {
         Assert.Throws<InvalidOperationException>(() =>
