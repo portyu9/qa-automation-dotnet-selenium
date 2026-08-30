@@ -25,3 +25,22 @@ jobs:
           python-version: '3.13'
       - name: Validate README contracts
         run: python .github/scripts/validate_readme.py
+
+  generate-nuget-lock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: 8.0.424
+      - name: Generate lock with pinned SDK
+        run: dotnet restore UiTests.csproj --use-lock-file
+      - name: Verify locked restore
+        run: dotnet restore UiTests.csproj --locked-mode
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: nuget-packages-lock
+          path: packages.lock.json
+          if-no-files-found: error
+          retention-days: 1
