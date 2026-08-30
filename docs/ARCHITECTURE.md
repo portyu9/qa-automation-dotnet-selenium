@@ -104,7 +104,7 @@ This ensures the browser gate proves more than successful navigation and gives n
 
 ## Diagnostic evidence
 
-`ArtifactCollector` stores browser evidence under run/test-specific directories while verifying path containment before evidence is written. Diagnostic URLs are sanitized before persistence by removing user-info, query strings, and fragments.
+`ArtifactCollector` stores browser evidence under run/test-specific directories while verifying path containment before evidence is written. HTTP(S) diagnostic URLs retain only scheme/host/path context after user-info, query strings, and fragments are removed. Non-HTTP URLs are reduced to a scheme-only redacted sentinel; `about:blank` is preserved as a safe browser state.
 
 The automatic failure contract is intentionally minimal:
 
