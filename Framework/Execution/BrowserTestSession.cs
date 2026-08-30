@@ -40,7 +40,7 @@ public sealed class BrowserTestSession : IDisposable
             catch (Exception artifactError)
             {
                 Console.Error.WriteLine(
-                    $"[artifact-capture:{Settings.RunId}] {artifactError.GetType().Name}: {artifactError.Message}");
+                    $"[artifact-capture:{Settings.RunId}] {artifactError.GetType().Name}");
             }
             throw;
         }
@@ -58,7 +58,7 @@ public sealed class BrowserTestSession : IDisposable
         catch (WebDriverException error)
         {
             Console.Error.WriteLine(
-                $"[driver-cleanup:{Settings.RunId}] {error.GetType().Name}: {error.Message}");
+                $"[driver-cleanup:{Settings.RunId}] {error.GetType().Name}");
         }
         finally
         {
