@@ -102,6 +102,7 @@ public class ArtifactCollectorTests
 
         public void Close() { }
         public void Dispose() { }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         public void Quit() { }
         public IOptions Manage() => throw new NotSupportedException();
         public INavigation Navigate() => throw new NotSupportedException();
