@@ -36,7 +36,7 @@ public sealed record TestSettings(
             if (!Uri.TryCreate(gridRaw, UriKind.Absolute, out gridUrl) || !IsSafeHttpUri(gridUrl))
             {
                 throw new InvalidOperationException(
-                    "SELENIUM_GRID_URL must be an absolute http(s) URL without credentials, query, or fragment.");
+                    "SELENIUM_GRID_URL must be an absolute http(s) URL with a valid port and without credentials, query, or fragment.");
             }
         }
 
@@ -59,7 +59,7 @@ public sealed record TestSettings(
         if (!Uri.TryCreate(raw, UriKind.Absolute, out var uri) || !IsSafeHttpUri(uri))
         {
             throw new InvalidOperationException(
-                $"{name} must be an absolute http(s) URL without credentials, query, or fragment.");
+                $"{name} must be an absolute http(s) URL with a valid port and without credentials, query, or fragment.");
         }
         return uri;
     }
@@ -67,6 +67,7 @@ public sealed record TestSettings(
     private static bool IsSafeHttpUri(Uri uri) =>
         (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
         !string.IsNullOrWhiteSpace(uri.Host) &&
+        uri.Port is >= 1 and <= 65535 &&
         string.IsNullOrEmpty(uri.UserInfo) &&
         string.IsNullOrEmpty(uri.Query) &&
         string.IsNullOrEmpty(uri.Fragment);
