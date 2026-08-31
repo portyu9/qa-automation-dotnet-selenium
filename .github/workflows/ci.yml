@@ -23,13 +23,15 @@ jobs:
       TEST_HEADLESS: "true"
       TEST_RUN_ID: gha-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 8.0.424
-      - name: Restore locked dependency graph
+          dotnet-version: 10.0.400
+      - name: Verify pinned SDK
+        run: dotnet --version
+      - name: Restore locked dependency graph and audit HIGH/CRITICAL advisories
         run: dotnet restore UiTests.csproj --locked-mode
-      - name: Build
+      - name: Build with warnings as errors
         run: dotnet build UiTests.csproj --configuration Release --no-restore
       - name: Test against repository-owned loopback fixture
         run: >-
@@ -50,21 +52,22 @@ jobs:
             --arg status "$JOB_STATUS" \
             --arg sha "$GITHUB_SHA" \
             --arg ref "$GITHUB_REF" \
-            '{schemaVersion:1,framework:"selenium-xunit-v3",runId:$runId,dimension:{dotnet:"8.0.424",browser:"chrome",target:"local-fixture"},status:$status,sha:$sha,ref:$ref}' \
+            '{schemaVersion:1,framework:"selenium-xunit-v3",runId:$runId,dimension:{dotnet:"10.0.400",targetFramework:"net10.0",browser:"chrome",target:"local-fixture"},status:$status,sha:$sha,ref:$ref}' \
             > artifacts/ci/observability.json
           {
             echo '### Selenium / xUnit v3 · Chrome'
             echo
             echo "- Run ID: \`${TEST_RUN_ID}\`"
             echo "- Job status: \`${JOB_STATUS}\`"
-            echo '- SDK: `8.0.424` (global.json exact pin)'
-            echo '- NuGet: committed dependency graph + `--locked-mode`'
+            echo '- SDK: `10.0.400` (global.json exact pin)'
+            echo '- Target framework: `net10.0`'
+            echo '- NuGet: committed dependency graph + `--locked-mode` + HIGH/CRITICAL audit-to-error policy'
             echo '- Target: repository-owned loopback fixture'
             echo '- Evidence: TRX + Cobertura coverage + browser failure artifacts + CI observability envelope'
           } | tee artifacts/ci/summary.md >> "$GITHUB_STEP_SUMMARY"
       - name: Upload test evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dotnet-selenium-evidence
           path: |
