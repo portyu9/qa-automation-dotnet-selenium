@@ -41,8 +41,10 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.400
-      - name: Verify pinned SDK
-        run: dotnet --version
+      - name: Verify pinned SDK and MTP runner selection
+        run: |
+          dotnet --version
+          grep -F '"runner": "Microsoft.Testing.Platform"' global.json
       - name: Restore locked dependency graph and audit HIGH/CRITICAL advisories
         run: dotnet restore UiTests.csproj --locked-mode
       - name: Release build with warnings as errors
@@ -52,24 +54,27 @@ jobs:
           dotnet test UiTests.csproj
           --configuration Release
           --no-build
-          --logger "trx;LogFileName=${{ matrix.browser }}.trx"
           --results-directory TestResults/${{ matrix.browser }}
-          --collect "XPlat Code Coverage"
+          --report-trx
+          --report-trx-filename ${{ matrix.browser }}.trx
+          --coverlet
+          --coverlet-output-format cobertura
       - name: Publish browser observability summary
         if: always()
         run: |
           mkdir -p "artifacts/ci-${{ matrix.browser }}"
           {
-            echo "### Selenium / xUnit v3 · ${{ matrix.browser }}"
+            echo "### Selenium / xUnit v3 / MTP · ${{ matrix.browser }}"
             echo
             echo "- Run ID: \`${TEST_RUN_ID}\`"
             echo "- Browser: \`${{ matrix.browser }}\`"
             echo '- SDK: `10.0.400` (global.json exact pin)'
+            echo '- Test platform: native `Microsoft.Testing.Platform`'
             echo '- NuGet: committed dependency graph + `--locked-mode` + HIGH/CRITICAL audit-to-error policy'
             echo '- Target framework: `net10.0`'
             echo '- Target: repository-owned loopback fixture'
             echo "- Job status: \`${{ job.status }}\`"
-            echo '- Evidence: TRX + Cobertura coverage + browser failure artifacts'
+            echo '- Evidence: MTP TRX + coverlet.MTP Cobertura + browser failure artifacts'
           } | tee "artifacts/ci-${{ matrix.browser }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload cross-browser evidence
         if: always()
