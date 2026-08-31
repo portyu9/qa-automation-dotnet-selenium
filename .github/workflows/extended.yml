@@ -59,6 +59,34 @@ jobs:
           --report-trx-filename ${{ matrix.browser }}.trx
           --coverlet
           --coverlet-output-format cobertura
+          --coverlet-include-test-assembly
+          --coverlet-include "[UiTests]UiTests.Framework.*"
+          --coverlet-include "[UiTests]UiTests.PageObjects.*"
+      - name: Validate meaningful framework coverage evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          BROWSER='${{ matrix.browser }}' python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import xml.etree.ElementTree as ET
+
+          browser = os.environ["BROWSER"]
+          reports = sorted(Path("TestResults", browser).glob("coverage.cobertura.*.xml"))
+          if len(reports) != 1:
+              raise SystemExit(f"expected exactly one {browser} Cobertura report, found {len(reports)}: {reports}")
+          root = ET.parse(reports[0]).getroot()
+          lines_valid = int(root.attrib.get("lines-valid", "0"))
+          packages = root.find("packages")
+          package_count = len(list(packages)) if packages is not None else 0
+          if lines_valid <= 0 or package_count <= 0:
+              raise SystemExit(
+                  f"{browser} coverage report is structurally empty: lines-valid={lines_valid}, packages={package_count}"
+              )
+          print(
+              f"{browser} coverage contract: {reports[0]} lines-valid={lines_valid} packages={package_count}"
+          )
+          PY
       - name: Publish browser observability summary
         if: always()
         run: |
@@ -73,6 +101,7 @@ jobs:
             echo '- NuGet: committed dependency graph + `--locked-mode` + HIGH/CRITICAL audit-to-error policy'
             echo '- Target framework: `net10.0`'
             echo '- Target: repository-owned loopback fixture'
+            echo '- Coverage scope: `UiTests.Framework.*` + `UiTests.PageObjects.*`; structurally empty Cobertura is rejected'
             echo "- Job status: \`${{ job.status }}\`"
             echo '- Evidence: MTP TRX + coverlet.MTP Cobertura + browser failure artifacts'
           } | tee "artifacts/ci-${{ matrix.browser }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
