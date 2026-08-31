@@ -27,8 +27,10 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.400
-      - name: Verify pinned SDK
-        run: dotnet --version
+      - name: Verify pinned SDK and MTP runner selection
+        run: |
+          dotnet --version
+          grep -F '"runner": "Microsoft.Testing.Platform"' global.json
       - name: Restore locked dependency graph and audit HIGH/CRITICAL advisories
         run: dotnet restore UiTests.csproj --locked-mode
       - name: Build with warnings as errors
@@ -38,9 +40,11 @@ jobs:
           dotnet test UiTests.csproj
           --configuration Release
           --no-build
-          --logger "trx;LogFileName=tests.trx"
           --results-directory TestResults
-          --collect "XPlat Code Coverage"
+          --report-trx
+          --report-trx-filename tests.trx
+          --coverlet
+          --coverlet-output-format cobertura
       - name: Publish CI observability summary
         if: always()
         env:
@@ -52,18 +56,19 @@ jobs:
             --arg status "$JOB_STATUS" \
             --arg sha "$GITHUB_SHA" \
             --arg ref "$GITHUB_REF" \
-            '{schemaVersion:1,framework:"selenium-xunit-v3",runId:$runId,dimension:{dotnet:"10.0.400",targetFramework:"net10.0",browser:"chrome",target:"local-fixture"},status:$status,sha:$sha,ref:$ref}' \
+            '{schemaVersion:1,framework:"selenium-xunit-v3-mtp",runId:$runId,dimension:{dotnet:"10.0.400",targetFramework:"net10.0",browser:"chrome",target:"local-fixture"},status:$status,sha:$sha,ref:$ref}' \
             > artifacts/ci/observability.json
           {
-            echo '### Selenium / xUnit v3 · Chrome'
+            echo '### Selenium / xUnit v3 / MTP · Chrome'
             echo
             echo "- Run ID: \`${TEST_RUN_ID}\`"
             echo "- Job status: \`${JOB_STATUS}\`"
             echo '- SDK: `10.0.400` (global.json exact pin)'
+            echo '- Test platform: native `Microsoft.Testing.Platform`'
             echo '- Target framework: `net10.0`'
             echo '- NuGet: committed dependency graph + `--locked-mode` + HIGH/CRITICAL audit-to-error policy'
             echo '- Target: repository-owned loopback fixture'
-            echo '- Evidence: TRX + Cobertura coverage + browser failure artifacts + CI observability envelope'
+            echo '- Evidence: MTP TRX + coverlet.MTP Cobertura + browser failure artifacts + CI observability envelope'
           } | tee artifacts/ci/summary.md >> "$GITHUB_STEP_SUMMARY"
       - name: Upload test evidence
         if: always()
