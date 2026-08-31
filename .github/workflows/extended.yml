@@ -37,41 +37,77 @@ jobs:
       TEST_HEADLESS: "true"
       TEST_RUN_ID: gha-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.browser }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 8.0.424
-      - name: Restore locked dependency graph
+          dotnet-version: 10.0.400
+      - name: Verify pinned SDK and MTP runner selection
+        run: |
+          dotnet --version
+          grep -F '"runner": "Microsoft.Testing.Platform"' global.json
+      - name: Restore locked dependency graph and audit HIGH/CRITICAL advisories
         run: dotnet restore UiTests.csproj --locked-mode
-      - name: Release build
+      - name: Release build with warnings as errors
         run: dotnet build UiTests.csproj --configuration Release --no-restore
       - name: Run xUnit v3 suite in ${{ matrix.browser }} against repository-owned fixture
         run: >-
           dotnet test UiTests.csproj
           --configuration Release
           --no-build
-          --logger "trx;LogFileName=${{ matrix.browser }}.trx"
           --results-directory TestResults/${{ matrix.browser }}
-          --collect "XPlat Code Coverage"
+          --report-trx
+          --report-trx-filename ${{ matrix.browser }}.trx
+          --coverlet
+          --coverlet-output-format cobertura
+          --coverlet-include-test-assembly
+          --coverlet-include "[UiTests]UiTests.Framework.*"
+          --coverlet-include "[UiTests]UiTests.PageObjects.*"
+      - name: Validate meaningful framework coverage evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          BROWSER='${{ matrix.browser }}' python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import xml.etree.ElementTree as ET
+
+          browser = os.environ["BROWSER"]
+          reports = sorted(Path("TestResults", browser).glob("coverage.cobertura.*.xml"))
+          if len(reports) != 1:
+              raise SystemExit(f"expected exactly one {browser} Cobertura report, found {len(reports)}: {reports}")
+          root = ET.parse(reports[0]).getroot()
+          lines_valid = int(root.attrib.get("lines-valid", "0"))
+          packages = root.find("packages")
+          package_count = len(list(packages)) if packages is not None else 0
+          if lines_valid <= 0 or package_count <= 0:
+              raise SystemExit(
+                  f"{browser} coverage report is structurally empty: lines-valid={lines_valid}, packages={package_count}"
+              )
+          print(
+              f"{browser} coverage contract: {reports[0]} lines-valid={lines_valid} packages={package_count}"
+          )
+          PY
       - name: Publish browser observability summary
         if: always()
         run: |
           mkdir -p "artifacts/ci-${{ matrix.browser }}"
           {
-            echo "### Selenium / xUnit v3 · ${{ matrix.browser }}"
+            echo "### Selenium / xUnit v3 / MTP · ${{ matrix.browser }}"
             echo
             echo "- Run ID: \`${TEST_RUN_ID}\`"
             echo "- Browser: \`${{ matrix.browser }}\`"
-            echo '- SDK: `8.0.424` (global.json exact pin)'
-            echo '- NuGet: committed dependency graph + `--locked-mode`'
-            echo "- Target framework: \`net8.0\`"
+            echo '- SDK: `10.0.400` (global.json exact pin)'
+            echo '- Test platform: native `Microsoft.Testing.Platform`'
+            echo '- NuGet: committed dependency graph + `--locked-mode` + HIGH/CRITICAL audit-to-error policy'
+            echo '- Target framework: `net10.0`'
             echo '- Target: repository-owned loopback fixture'
+            echo '- Coverage scope: `UiTests.Framework.*` + `UiTests.PageObjects.*`; structurally empty Cobertura is rejected'
             echo "- Job status: \`${{ job.status }}\`"
-            echo "- Evidence: TRX + Cobertura coverage + browser failure artifacts"
+            echo '- Evidence: MTP TRX + coverlet.MTP Cobertura + browser failure artifacts'
           } | tee "artifacts/ci-${{ matrix.browser }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload cross-browser evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: selenium-${{ matrix.browser }}-extended-evidence
           path: |
