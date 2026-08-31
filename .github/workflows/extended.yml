@@ -37,13 +37,15 @@ jobs:
       TEST_HEADLESS: "true"
       TEST_RUN_ID: gha-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.browser }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 8.0.424
-      - name: Restore locked dependency graph
+          dotnet-version: 10.0.400
+      - name: Verify pinned SDK
+        run: dotnet --version
+      - name: Restore locked dependency graph and audit HIGH/CRITICAL advisories
         run: dotnet restore UiTests.csproj --locked-mode
-      - name: Release build
+      - name: Release build with warnings as errors
         run: dotnet build UiTests.csproj --configuration Release --no-restore
       - name: Run xUnit v3 suite in ${{ matrix.browser }} against repository-owned fixture
         run: >-
@@ -62,16 +64,16 @@ jobs:
             echo
             echo "- Run ID: \`${TEST_RUN_ID}\`"
             echo "- Browser: \`${{ matrix.browser }}\`"
-            echo '- SDK: `8.0.424` (global.json exact pin)'
-            echo '- NuGet: committed dependency graph + `--locked-mode`'
-            echo "- Target framework: \`net8.0\`"
+            echo '- SDK: `10.0.400` (global.json exact pin)'
+            echo '- NuGet: committed dependency graph + `--locked-mode` + HIGH/CRITICAL audit-to-error policy'
+            echo '- Target framework: `net10.0`'
             echo '- Target: repository-owned loopback fixture'
             echo "- Job status: \`${{ job.status }}\`"
-            echo "- Evidence: TRX + Cobertura coverage + browser failure artifacts"
+            echo '- Evidence: TRX + Cobertura coverage + browser failure artifacts'
           } | tee "artifacts/ci-${{ matrix.browser }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload cross-browser evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: selenium-${{ matrix.browser }}-extended-evidence
           path: |
