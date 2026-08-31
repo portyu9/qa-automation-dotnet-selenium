@@ -45,6 +45,30 @@ jobs:
           --report-trx-filename tests.trx
           --coverlet
           --coverlet-output-format cobertura
+          --coverlet-include-test-assembly
+          --coverlet-include "[UiTests]UiTests.Framework.*"
+          --coverlet-include "[UiTests]UiTests.PageObjects.*"
+      - name: Validate meaningful framework coverage evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          reports = sorted(Path("TestResults").rglob("coverage.cobertura.*.xml"))
+          if len(reports) != 1:
+              raise SystemExit(f"expected exactly one Cobertura report, found {len(reports)}: {reports}")
+          root = ET.parse(reports[0]).getroot()
+          lines_valid = int(root.attrib.get("lines-valid", "0"))
+          packages = root.find("packages")
+          package_count = len(list(packages)) if packages is not None else 0
+          if lines_valid <= 0 or package_count <= 0:
+              raise SystemExit(
+                  f"coverage report is structurally empty: lines-valid={lines_valid}, packages={package_count}"
+              )
+          print(f"coverage contract: {reports[0]} lines-valid={lines_valid} packages={package_count}")
+          PY
       - name: Publish CI observability summary
         if: always()
         env:
@@ -68,6 +92,7 @@ jobs:
             echo '- Target framework: `net10.0`'
             echo '- NuGet: committed dependency graph + `--locked-mode` + HIGH/CRITICAL audit-to-error policy'
             echo '- Target: repository-owned loopback fixture'
+            echo '- Coverage scope: `UiTests.Framework.*` + `UiTests.PageObjects.*`; structurally empty Cobertura is rejected'
             echo '- Evidence: MTP TRX + coverlet.MTP Cobertura + browser failure artifacts + CI observability envelope'
           } | tee artifacts/ci/summary.md >> "$GITHUB_STEP_SUMMARY"
       - name: Upload test evidence
