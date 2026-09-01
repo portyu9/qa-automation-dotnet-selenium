@@ -41,7 +41,6 @@ public static class WebDriverFactory
     {
         var options = new ChromeOptions();
         options.AddArgument("--disable-dev-shm-usage");
-        options.AddArgument("--no-sandbox");
         options.AddArgument("--window-size=1440,1000");
         if (headless) options.AddArgument("--headless=new");
         return options;
