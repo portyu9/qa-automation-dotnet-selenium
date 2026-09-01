@@ -11,6 +11,7 @@ on:
       - "UiTests.csproj"
       - "global.json"
       - "packages.lock.json"
+      - ".github/scripts/**"
       - ".github/workflows/extended.yml"
   schedule:
     - cron: "47 7 * * 3"
@@ -62,35 +63,24 @@ jobs:
           --coverlet-include-test-assembly
           --coverlet-include "[UiTests]UiTests.Framework.*"
           --coverlet-include "[UiTests]UiTests.PageObjects.*"
-      - name: Validate meaningful framework coverage evidence
-        shell: bash
-        run: |
-          set -euo pipefail
-          BROWSER='${{ matrix.browser }}' python3 - <<'PY'
-          from pathlib import Path
-          import os
-          import xml.etree.ElementTree as ET
-
-          browser = os.environ["BROWSER"]
-          reports = sorted(Path("TestResults", browser).glob("coverage.cobertura.*.xml"))
-          if len(reports) != 1:
-              raise SystemExit(f"expected exactly one {browser} Cobertura report, found {len(reports)}: {reports}")
-          root = ET.parse(reports[0]).getroot()
-          lines_valid = int(root.attrib.get("lines-valid", "0"))
-          packages = root.find("packages")
-          package_count = len(list(packages)) if packages is not None else 0
-          if lines_valid <= 0 or package_count <= 0:
-              raise SystemExit(
-                  f"{browser} coverage report is structurally empty: lines-valid={lines_valid}, packages={package_count}"
-              )
-          print(
-              f"{browser} coverage contract: {reports[0]} lines-valid={lines_valid} packages={package_count}"
-          )
-          PY
+      - name: Validate semantic test and coverage evidence
+        run: >-
+          python .github/scripts/validate_test_evidence.py TestResults/${{ matrix.browser }}
+          --min-tests 28
+          --min-line-rate 0.80
+          --min-branch-rate 0.55
       - name: Publish browser observability summary
         if: always()
         run: |
           mkdir -p "artifacts/ci-${{ matrix.browser }}"
+          jq -n \
+            --arg runId "$TEST_RUN_ID" \
+            --arg browser '${{ matrix.browser }}' \
+            --arg status '${{ job.status }}' \
+            --arg sha "$GITHUB_SHA" \
+            --arg ref "$GITHUB_REF" \
+            '{schemaVersion:1,framework:"selenium-xunit-v3-mtp",runId:$runId,dimension:{dotnet:"10.0.400",targetFramework:"net10.0",browser:$browser,target:"local-fixture"},qualityFloor:{executedTests:28,lineCoverage:0.80,branchCoverage:0.55},status:$status,sha:$sha,ref:$ref}' \
+            > "artifacts/ci-${{ matrix.browser }}/observability.json"
           {
             echo "### Selenium / xUnit v3 / MTP · ${{ matrix.browser }}"
             echo
@@ -101,9 +91,9 @@ jobs:
             echo '- NuGet: committed dependency graph + `--locked-mode` + HIGH/CRITICAL audit-to-error policy'
             echo '- Target framework: `net10.0`'
             echo '- Target: repository-owned loopback fixture'
-            echo '- Coverage scope: `UiTests.Framework.*` + `UiTests.PageObjects.*`; structurally empty Cobertura is rejected'
+            echo '- Evidence floor: at least `28` executed tests, all passing; Cobertura counters must reconcile; line coverage `>=80%`; branch coverage `>=55%`'
             echo "- Job status: \`${{ job.status }}\`"
-            echo '- Evidence: MTP TRX + coverlet.MTP Cobertura + browser failure artifacts'
+            echo '- Evidence: MTP TRX + coverlet.MTP Cobertura + browser failure artifacts + observability envelope'
           } | tee "artifacts/ci-${{ matrix.browser }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload cross-browser evidence
         if: always()
@@ -112,6 +102,23 @@ jobs:
           name: selenium-${{ matrix.browser }}-extended-evidence
           path: |
             TestResults/${{ matrix.browser }}/
-            artifacts/
-          if-no-files-found: ignore
+            artifacts/ci-${{ matrix.browser }}/
+          if-no-files-found: error
           retention-days: 14
+
+  extended-gate:
+    name: extended-gate
+    if: always()
+    needs: [cross-browser]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate cross-browser matrix
+        env:
+          CROSS_BROWSER_RESULT: ${{ needs.cross-browser.result }}
+        run: |
+          if [[ "$CROSS_BROWSER_RESULT" != "success" ]]; then
+            echo "cross-browser matrix did not succeed: $CROSS_BROWSER_RESULT" >&2
+            exit 1
+          fi
+          echo 'Chrome and Firefox extended lanes succeeded.'
