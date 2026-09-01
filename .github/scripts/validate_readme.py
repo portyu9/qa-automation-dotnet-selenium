@@ -42,6 +42,11 @@ MERMAID_ROOTS = (
     "quadrantChart",
     "xychart",
 )
+STABLE_GATES = {
+    "ci.yml": "ci-gate",
+    "extended.yml": "extended-gate",
+    "security.yml": "security-gate",
+}
 
 
 def fail(message: str, errors: list[str]) -> None:
@@ -111,12 +116,7 @@ def validate_mermaid(text: str, errors: list[str]) -> None:
 
 
 def validate_text_diagrams(text: str, errors: list[str]) -> None:
-    """Prevent flow diagrams from being hidden inside plain-text fences.
-
-    Directory/artifact trees intentionally use box-drawing characters and remain
-    valid text. Directional arrows indicate a flow and must use Mermaid so GitHub
-    renders a real diagram rather than font-dependent pseudo-graphics.
-    """
+    """Prevent flow diagrams from being hidden inside plain-text fences."""
     for index, block in enumerate(TEXT_FENCE_RE.findall(text), start=1):
         glyphs = sorted({character for character in block if character in FLOW_GLYPHS})
         if glyphs:
@@ -152,6 +152,18 @@ def validate_repository_map(text: str, errors: list[str]) -> None:
         fail("README repository map is empty", errors)
 
 
+def validate_stable_gates(errors: list[str]) -> None:
+    workflows = ROOT / ".github" / "workflows"
+    for workflow_name, gate in STABLE_GATES.items():
+        workflow_path = workflows / workflow_name
+        if not workflow_path.is_file():
+            fail(f"stable-gate workflow is missing: {workflow_name}", errors)
+            continue
+        workflow_text = workflow_path.read_text(encoding="utf-8")
+        if not re.search(rf"(?m)^  {re.escape(gate)}:\s*$", workflow_text):
+            fail(f"{workflow_name} must define the stable aggregate job `{gate}`", errors)
+
+
 def main() -> int:
     errors: list[str] = []
 
@@ -170,6 +182,7 @@ def main() -> int:
     validate_mermaid(text, errors)
     validate_text_diagrams(text, errors)
     validate_repository_map(text, errors)
+    validate_stable_gates(errors)
 
     if errors:
         print("README contract failed:")

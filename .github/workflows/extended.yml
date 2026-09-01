@@ -4,15 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    paths:
-      - "Framework/**"
-      - "PageObjects/**"
-      - "Tests/**"
-      - "UiTests.csproj"
-      - "global.json"
-      - "packages.lock.json"
-      - ".github/scripts/**"
-      - ".github/workflows/extended.yml"
   schedule:
     - cron: "47 7 * * 3"
   workflow_dispatch:
@@ -33,6 +24,7 @@ jobs:
       matrix:
         browser: [chrome, firefox]
     env:
+      DOTNET_SDK_VERSION: 10.0.400
       TEST_BASE_URL: http://127.0.0.1:3200
       TEST_BROWSER: ${{ matrix.browser }}
       TEST_HEADLESS: "true"
@@ -44,8 +36,14 @@ jobs:
           dotnet-version: 10.0.400
       - name: Verify pinned SDK and MTP runner selection
         run: |
-          dotnet --version
+          set -euo pipefail
+          [[ "$(dotnet --version)" == "$DOTNET_SDK_VERSION" ]] || {
+            echo "unexpected .NET SDK: $(dotnet --version)" >&2
+            exit 1
+          }
           grep -F '"runner": "Microsoft.Testing.Platform"' global.json
+      - name: Validate immutable workflow dependencies
+        run: python .github/scripts/validate_workflow_pins.py
       - name: Restore locked dependency graph and audit HIGH/CRITICAL advisories
         run: dotnet restore UiTests.csproj --locked-mode
       - name: Release build with warnings as errors
@@ -67,6 +65,8 @@ jobs:
         run: >-
           python .github/scripts/validate_test_evidence.py TestResults/${{ matrix.browser }}
           --min-tests 28
+          --required-class UiTests.Tests.LoginTests=2
+          --required-class UiTests.Tests.SeleniumCapabilitiesTests=2
           --min-line-rate 0.80
           --min-branch-rate 0.55
       - name: Publish browser observability summary
@@ -79,19 +79,19 @@ jobs:
             --arg status '${{ job.status }}' \
             --arg sha "$GITHUB_SHA" \
             --arg ref "$GITHUB_REF" \
-            '{schemaVersion:1,framework:"selenium-xunit-v3-mtp",runId:$runId,dimension:{dotnet:"10.0.400",targetFramework:"net10.0",browser:$browser,target:"local-fixture"},qualityFloor:{executedTests:28,lineCoverage:0.80,branchCoverage:0.55},status:$status,sha:$sha,ref:$ref}' \
+            '{schemaVersion:1,framework:"selenium-xunit-v3-mtp",runId:$runId,dimension:{dotnet:"10.0.400",targetFramework:"net10.0",browser:$browser,target:"local-fixture"},qualityFloor:{executedTests:28,loginTests:2,seleniumCapabilityTests:2,lineCoverage:0.80,branchCoverage:0.55},status:$status,sha:$sha,ref:$ref}' \
             > "artifacts/ci-${{ matrix.browser }}/observability.json"
           {
             echo "### Selenium / xUnit v3 / MTP · ${{ matrix.browser }}"
             echo
             echo "- Run ID: \`${TEST_RUN_ID}\`"
             echo "- Browser: \`${{ matrix.browser }}\`"
-            echo '- SDK: `10.0.400` (global.json exact pin)'
+            echo '- SDK: `10.0.400` (global.json exact pin + runtime assertion)'
             echo '- Test platform: native `Microsoft.Testing.Platform`'
             echo '- NuGet: committed dependency graph + `--locked-mode` + HIGH/CRITICAL audit-to-error policy'
             echo '- Target framework: `net10.0`'
             echo '- Target: repository-owned loopback fixture'
-            echo '- Evidence floor: at least `28` executed tests, all passing; Cobertura counters must reconcile; line coverage `>=80%`; branch coverage `>=55%`'
+            echo '- Evidence floor: at least `28` executed tests including >=2 LoginTests and >=2 SeleniumCapabilitiesTests; all passing; Cobertura counters must reconcile; line coverage `>=80%`; branch coverage `>=55%`'
             echo "- Job status: \`${{ job.status }}\`"
             echo '- Evidence: MTP TRX + coverlet.MTP Cobertura + browser failure artifacts + observability envelope'
           } | tee "artifacts/ci-${{ matrix.browser }}/summary.md" >> "$GITHUB_STEP_SUMMARY"

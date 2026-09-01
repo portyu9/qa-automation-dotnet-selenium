@@ -18,9 +18,47 @@ def require_exactly_one(paths: list[Path], label: str) -> Path:
     return paths[0]
 
 
-def validate_trx(results_dir: Path, minimum_tests: int) -> tuple[int, Counter[str]]:
+def parse_required_class(value: str) -> tuple[str, int]:
+    class_name, separator, minimum_raw = value.rpartition("=")
+    if not separator or not class_name.strip():
+        raise argparse.ArgumentTypeError(
+            "required class must use fully.qualified.ClassName=minimum"
+        )
+    try:
+        minimum = int(minimum_raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("required-class minimum must be an integer") from exc
+    if minimum < 1:
+        raise argparse.ArgumentTypeError("required-class minimum must be positive")
+    return class_name.strip(), minimum
+
+
+def validate_trx(
+    results_dir: Path,
+    minimum_tests: int,
+    required_classes: list[tuple[str, int]],
+) -> tuple[int, Counter[str], Counter[str]]:
     trx = require_exactly_one(sorted(results_dir.rglob("*.trx")), "TRX report")
     root = ET.parse(trx).getroot()
+
+    definitions: dict[str, str] = {}
+    for unit_test in (element for element in root.iter() if local_name(element.tag) == "UnitTest"):
+        test_id = unit_test.attrib.get("id")
+        methods = [
+            child
+            for child in unit_test.iter()
+            if local_name(child.tag) == "TestMethod"
+        ]
+        if not test_id or len(methods) != 1:
+            raise SystemExit(
+                "TRX test definition is missing a unique id/TestMethod mapping: "
+                f"id={test_id!r}, methods={len(methods)}"
+            )
+        class_name = methods[0].attrib.get("className")
+        if not class_name:
+            raise SystemExit(f"TRX test definition {test_id} is missing className")
+        definitions[test_id] = class_name
+
     results = [element for element in root.iter() if local_name(element.tag) == "UnitTestResult"]
     outcomes: Counter[str] = Counter(result.attrib.get("outcome", "<missing>") for result in results)
     executed = len(results)
@@ -32,8 +70,39 @@ def validate_trx(results_dir: Path, minimum_tests: int) -> tuple[int, Counter[st
     if outcomes != Counter({"Passed": executed}):
         raise SystemExit(f"TRX contains non-passing outcomes: {dict(outcomes)}")
 
-    print(f"TRX contract: {trx} executed={executed} passed={outcomes['Passed']}")
-    return executed, outcomes
+    class_counts: Counter[str] = Counter()
+    missing_definitions: list[str] = []
+    for result in results:
+        test_id = result.attrib.get("testId")
+        class_name = definitions.get(test_id or "")
+        if class_name is None:
+            missing_definitions.append(test_id or "<missing>")
+        else:
+            class_counts[class_name] += 1
+    if missing_definitions:
+        raise SystemExit(
+            "TRX results cannot be attributed to test classes; missing definitions for: "
+            + ", ".join(sorted(missing_definitions))
+        )
+
+    for class_name, minimum in required_classes:
+        observed = class_counts[class_name]
+        if observed < minimum:
+            raise SystemExit(
+                "governed Selenium test surface missing or shrunk: "
+                f"class={class_name}, executed={observed}, required={minimum}"
+            )
+
+    governed = sum(class_counts[class_name] for class_name, _ in required_classes)
+    print(
+        f"TRX contract: {trx} executed={executed} passed={outcomes['Passed']} "
+        f"governed-browser-tests={governed}"
+    )
+    for class_name, minimum in required_classes:
+        print(
+            f"TRX governed class: {class_name} executed={class_counts[class_name]} minimum={minimum}"
+        )
+    return executed, outcomes, class_counts
 
 
 def validate_coverage(results_dir: Path, minimum_line_rate: float, minimum_branch_rate: float) -> tuple[float, float]:
@@ -96,6 +165,13 @@ def main() -> int:
     parser.add_argument("--min-tests", type=int, default=28)
     parser.add_argument("--min-line-rate", type=float, default=0.80)
     parser.add_argument("--min-branch-rate", type=float, default=0.55)
+    parser.add_argument(
+        "--required-class",
+        type=parse_required_class,
+        action="append",
+        default=[],
+        help="Require at least N executed tests from a fully-qualified class (ClassName=N).",
+    )
     args = parser.parse_args()
 
     if not args.results_dir.is_dir():
@@ -109,7 +185,7 @@ def main() -> int:
         if not 0 <= value <= 1:
             raise SystemExit(f"{name} must be between 0 and 1")
 
-    validate_trx(args.results_dir, args.min_tests)
+    validate_trx(args.results_dir, args.min_tests, args.required_class)
     validate_coverage(args.results_dir, args.min_line_rate, args.min_branch_rate)
     return 0
 
