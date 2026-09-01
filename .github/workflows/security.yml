@@ -15,6 +15,9 @@ concurrency:
   group: security-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  DOTNET_SDK_VERSION: 10.0.400
+
 jobs:
   codeql:
     name: CodeQL
@@ -32,6 +35,15 @@ jobs:
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.400
+      - name: Validate immutable workflow dependencies
+        run: python .github/scripts/validate_workflow_pins.py
+      - name: Verify exact .NET SDK
+        run: |
+          set -euo pipefail
+          [[ "$(dotnet --version)" == "$DOTNET_SDK_VERSION" ]] || {
+            echo "unexpected .NET SDK: $(dotnet --version)" >&2
+            exit 1
+          }
       - name: Initialize CodeQL
         uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
@@ -44,6 +56,35 @@ jobs:
         run: dotnet build UiTests.csproj --configuration Release --no-restore
       - name: Analyze
         uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+
+  nuget-audit:
+    name: NuGet locked audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up .NET 10 LTS
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.400
+      - name: Validate immutable workflow dependencies
+        run: python .github/scripts/validate_workflow_pins.py
+      - name: Verify exact .NET SDK
+        run: |
+          set -euo pipefail
+          [[ "$(dotnet --version)" == "$DOTNET_SDK_VERSION" ]] || exit 1
+      - name: Restore exact lock graph with HIGH/CRITICAL audit-to-error policy
+        run: dotnet restore UiTests.csproj --locked-mode
+      - name: Publish NuGet audit summary
+        run: |
+          {
+            echo '### NuGet locked dependency audit'
+            echo
+            echo '- SDK: `10.0.400` exact'
+            echo '- Graph: committed `packages.lock.json` in `--locked-mode`'
+            echo '- Audit: direct + transitive dependencies; HIGH/CRITICAL advisories are errors (`NU1903`, `NU1904`)'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   trivy:
     name: Trivy
@@ -66,7 +107,7 @@ jobs:
           format: json
           output: reports/security/trivy.json
           exit-code: "1"
-      - name: Publish security summary
+      - name: Require and summarize security evidence
         if: always()
         shell: bash
         run: |
@@ -77,21 +118,37 @@ jobs:
             printf '### Security gate\n\nTrivy did not produce the required JSON report.\n' | tee "$summary" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+          jq -e '
+            (.SchemaVersion == 2)
+            and (.Trivy.Version == "0.74.0")
+            and any(.Results[]?;
+              .Target == "packages.lock.json"
+              and .Class == "lang-pkgs"
+              and .Type == "nuget"
+              and ((.Packages // []) | length >= 30)
+              and any(.Packages[]?; .Name == "Selenium.WebDriver")
+              and any(.Packages[]?; .Name == "Selenium.Support")
+              and any(.Packages[]?; .Name == "xunit.v3")
+              and any(.Packages[]?; .Name == "coverlet.MTP")
+            )
+          ' "$report" >/dev/null
           vulnerabilities=$(jq '[.Results[]? | .Vulnerabilities[]?] | length' "$report")
           misconfigurations=$(jq '[.Results[]? | .Misconfigurations[]?] | length' "$report")
           secrets=$(jq '[.Results[]? | .Secrets[]?] | length' "$report")
+          nuget_packages=$(jq '[.Results[]? | select(.Target == "packages.lock.json" and .Type == "nuget") | .Packages[]?] | length' "$report")
           {
             echo '### Open-source security gate'
             echo
             echo '| Signal | Findings |'
             echo '| --- | ---: |'
+            echo "| NuGet packages represented | ${nuget_packages} |"
             echo "| Fixed HIGH/CRITICAL vulnerabilities | ${vulnerabilities} |"
             echo "| HIGH/CRITICAL misconfigurations | ${misconfigurations} |"
             echo "| Gated secret findings | ${secrets} |"
             echo
             echo '- Scanner: Trivy v0.74.0'
-            echo '- Scope: repository filesystem, dependency manifests/lock, supported configuration files, and committed secret material'
-            echo '- Policy: gated findings retain a nonzero scan result; missing JSON evidence is itself a failure'
+            echo '- Scope: `packages.lock.json` NuGet graph, supported repository configuration, and committed secret material'
+            echo '- Evidence contract: schema/version plus a nontrivial NuGet target containing Selenium, xUnit, and coverage tooling'
           } | tee "$summary" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload security evidence
         if: always()
@@ -132,7 +189,7 @@ jobs:
               echo '### Dependency Review fallback'
               echo
               echo 'GitHub Dependency graph is unavailable for this repository, so pull-request diff analysis cannot run.'
-              echo 'Locked NuGet restore still audits HIGH/CRITICAL advisories and the independent Trivy job still fails on fixed HIGH/CRITICAL dependency findings, HIGH/CRITICAL supported misconfigurations, or gated secret findings. Enable Dependency graph in repository security settings to add the stronger change-aware review.'
+              echo 'Locked NuGet restore still audits HIGH/CRITICAL advisories and the independent Trivy job still proves/scans the NuGet lock graph plus supported repository policy/secret signals. Enable Dependency graph in repository security settings to add stronger change-aware review.'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Review dependency changes
@@ -142,37 +199,35 @@ jobs:
           fail-on-severity: high
       - name: Confirm repository-wide fallback gates
         if: steps.dependency-graph.outputs.available != 'true'
-        run: echo 'Dependency Review service unavailable; locked NuGet audit and Trivy remain independent required controls.'
+        run: echo 'Dependency Review service unavailable; locked NuGet audit and attributed Trivy evidence remain independent required controls.'
 
   security-gate:
     name: security-gate
     if: always()
-    needs: [codeql, trivy, dependency-review]
+    needs: [codeql, nuget-audit, trivy, dependency-review]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Evaluate security jobs
         env:
           CODEQL_RESULT: ${{ needs.codeql.result }}
+          NUGET_AUDIT_RESULT: ${{ needs.nuget-audit.result }}
           TRIVY_RESULT: ${{ needs.trivy.result }}
           DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency-review.result }}
+          EVENT: ${{ github.event_name }}
+          SAME_REPOSITORY_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         run: |
           set -euo pipefail
-          if [[ "$TRIVY_RESULT" != "success" ]]; then
-            echo "Trivy gate did not succeed: $TRIVY_RESULT" >&2
-            exit 1
+          [[ "$NUGET_AUDIT_RESULT" == "success" ]] || { echo "nuget-audit=$NUGET_AUDIT_RESULT" >&2; exit 1; }
+          [[ "$TRIVY_RESULT" == "success" ]] || { echo "trivy=$TRIVY_RESULT" >&2; exit 1; }
+          if [[ "$SAME_REPOSITORY_PR" == "true" ]]; then
+            [[ "$CODEQL_RESULT" == "success" ]] || { echo "codeql=$CODEQL_RESULT" >&2; exit 1; }
+          else
+            [[ "$CODEQL_RESULT" == "skipped" || "$CODEQL_RESULT" == "success" ]] || { echo "codeql=$CODEQL_RESULT" >&2; exit 1; }
           fi
-          if [[ "$CODEQL_RESULT" != "success" && "$CODEQL_RESULT" != "skipped" ]]; then
-            echo "CodeQL gate did not succeed or deliberately skip: $CODEQL_RESULT" >&2
-            exit 1
-          fi
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
-            if [[ "$DEPENDENCY_REVIEW_RESULT" != "success" ]]; then
-              echo "Dependency Review/fallback gate did not succeed: $DEPENDENCY_REVIEW_RESULT" >&2
-              exit 1
-            fi
-          elif [[ "$DEPENDENCY_REVIEW_RESULT" != "skipped" ]]; then
-            echo "Dependency Review should be skipped outside pull requests, got: $DEPENDENCY_REVIEW_RESULT" >&2
-            exit 1
+          if [[ "$EVENT" == "pull_request" ]]; then
+            [[ "$DEPENDENCY_REVIEW_RESULT" == "success" ]] || { echo "dependency-review=$DEPENDENCY_REVIEW_RESULT" >&2; exit 1; }
+          else
+            [[ "$DEPENDENCY_REVIEW_RESULT" == "skipped" || "$DEPENDENCY_REVIEW_RESULT" == "success" ]] || { echo "dependency-review=$DEPENDENCY_REVIEW_RESULT" >&2; exit 1; }
           fi
           echo 'Required security jobs satisfied the aggregate policy.'
