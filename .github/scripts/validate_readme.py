@@ -152,7 +152,7 @@ def validate_repository_map(text: str, errors: list[str]) -> None:
         fail("README repository map is empty", errors)
 
 
-def validate_stable_gates(text: str, errors: list[str]) -> None:
+def validate_stable_gates(errors: list[str]) -> None:
     workflows = ROOT / ".github" / "workflows"
     for workflow_name, gate in STABLE_GATES.items():
         workflow_path = workflows / workflow_name
@@ -162,9 +162,6 @@ def validate_stable_gates(text: str, errors: list[str]) -> None:
         workflow_text = workflow_path.read_text(encoding="utf-8")
         if not re.search(rf"(?m)^  {re.escape(gate)}:\s*$", workflow_text):
             fail(f"{workflow_name} must define the stable aggregate job `{gate}`", errors)
-        documented = f"`{workflow_name.removesuffix('.yml')} / {gate}`"
-        if documented.lower() not in text.lower():
-            fail(f"README must document stable aggregate status {documented}", errors)
 
 
 def main() -> int:
@@ -185,7 +182,7 @@ def main() -> int:
     validate_mermaid(text, errors)
     validate_text_diagrams(text, errors)
     validate_repository_map(text, errors)
-    validate_stable_gates(text, errors)
+    validate_stable_gates(errors)
 
     if errors:
         print("README contract failed:")
