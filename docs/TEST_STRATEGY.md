@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The suite uses xUnit v3 for deterministic framework contracts and Selenium for browser-visible behavior. Browser coverage is deliberately narrow and required CI is repository-controlled: framework correctness must not depend on a public application remaining reachable or unchanged.
+The suite uses xUnit for deterministic framework contracts and Selenium for browser-visible behavior. Browser coverage is deliberately narrow and required CI is repository-controlled: framework correctness must not depend on a public application remaining reachable or unchanged.
 
 The execution contract includes the .NET runtime and dependency graph. A browser test is not considered reproducible if it passes only because a developer machine selected a different SDK or resolved a different transitive package set.
 
@@ -24,14 +24,14 @@ The execution contract includes the .NET runtime and dependency graph. A browser
 
 ## Runtime and dependency qualification
 
-The project targets `net10.0` and pins SDK `10.0.400` in `global.json` with roll-forward disabled.
+The project targets the configured target framework and pins repository-selected SDK in `global.json` with roll-forward disabled.
 
 Required restore uses the committed `packages.lock.json` in `--locked-mode`. This creates two distinct failure classes:
 
 - the declared PackageReference/target framework and the committed lock graph disagree;
 - the graph resolves correctly but contains a dependency with a gated security advisory.
 
-NuGet Audit is explicitly enabled for the full graph with `NuGetAuditMode=all` and `NuGetAuditLevel=high`. HIGH and CRITICAL advisory warnings (`NU1903` and `NU1904`) are promoted to errors. The policy is explicit even though .NET 10 audits transitive packages by default, so a future runtime-default change cannot silently weaken the repository contract.
+NuGet Audit is explicitly enabled for the full graph with `NuGetAuditMode=all` and `NuGetAuditLevel=high`. HIGH and CRITICAL advisory warnings (`NU1903` and `NU1904`) are promoted to errors. The policy is explicit even though .NET audits transitive packages by default, so a future runtime-default change cannot silently weaken the repository contract.
 
 `TreatWarningsAsErrors` makes compile/analyzer warnings fail the Release build. Do not downgrade these policies simply to make a dependency update green; classify and resolve the underlying incompatibility or advisory.
 
@@ -155,9 +155,9 @@ Dependabot proposes NuGet and GitHub Actions updates. Update generation is not a
 
 Primary CI:
 
-1. installs/selects SDK `10.0.400`;
+1. installs/selects repository-selected SDK;
 2. restores `packages.lock.json` with `--locked-mode` and HIGH/CRITICAL NuGet Audit;
-3. builds `net10.0` Release with warnings as errors;
+3. builds the configured target framework Release with warnings as errors;
 4. executes the xUnit suite in headless Chrome against the local fixture;
 5. retains TRX, XPlat/Cobertura coverage, browser failure artifacts, and a machine-readable CI observability envelope.
 
@@ -203,7 +203,7 @@ A rerun is diagnostic information, not a resolution. A rerun-only pass should be
 
 A browser/framework change is ready when:
 
-- SDK `10.0.400` is selected reproducibly;
+- repository-selected SDK is selected reproducibly;
 - locked restore succeeds without rewriting the dependency graph;
 - HIGH/CRITICAL NuGet Audit is clean;
 - Release build succeeds with warnings as errors;

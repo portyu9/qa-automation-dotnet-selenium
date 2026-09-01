@@ -15,7 +15,7 @@
 [![License](https://img.shields.io/badge/License-MIT-2EA44F?logo=opensourceinitiative&logoColor=white)](LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-Policy-24292F?logo=github&logoColor=white)](.github/SECURITY.md)
 
-A C# browser quality-engineering framework built on **.NET 10 LTS, xUnit v3, and Selenium WebDriver**. Runtime selection, dependency resolution, configuration, browser construction, deterministic application ownership, synchronization, browser-context lifecycle, evidence capture, and teardown each have an explicit owner while native WebDriver behavior remains visible for diagnosis.
+A C# browser quality-engineering framework built on **.NET LTS, xUnit, and Selenium WebDriver**. Runtime selection, dependency resolution, configuration, browser construction, deterministic application ownership, synchronization, browser-context lifecycle, evidence capture, and teardown each have an explicit owner while native WebDriver behavior remains visible for diagnosis.
 
 > [!IMPORTANT]
 > Required browser CI is independent of public demonstration sites. The default application is a repository-owned C# loopback fixture. Deployed applications and Selenium Grid are explicit execution choices—not hidden dependencies of framework correctness.
@@ -26,7 +26,7 @@ A C# browser quality-engineering framework built on **.NET 10 LTS, xUnit v3, and
 
 | Plane | What it proves | Execution | Evidence |
 | --- | --- | --- | --- |
-| Framework contract | Configuration, lifecycle, and artifact safety | xUnit v3 / `net10.0` | Assertions + coverage |
+| Framework contract | Configuration, lifecycle, and artifact safety | xUnit / the configured target framework | Assertions + coverage |
 | Primary browser | Session + authentication behavior | Chrome + local fixture | TRX, Cobertura, browser artifacts |
 | Browser context primitives | JavaScript, cookies, frames, alerts, child-window lifecycle | Native WebDriver + local fixture | xUnit assertions + artifacts |
 | Extended browser | Engine compatibility | Chrome + Firefox + local fixture | Per-browser evidence |
@@ -41,7 +41,7 @@ A C# browser quality-engineering framework built on **.NET 10 LTS, xUnit v3, and
 
 ```mermaid
 flowchart LR
-    SDK[.NET 10.0.400] --> TEST[xUnit v3]
+    SDK[.NET.0.400] --> TEST[xUnit]
     TEST --> SESSION[BrowserTestSession]
     SESSION --> CFG[TestSettings]
     SESSION --> DRIVER[WebDriverFactory]
@@ -68,7 +68,7 @@ flowchart LR
 
 | Concern | Framework contract |
 | --- | --- |
-| Runtime | `global.json` selects SDK `10.0.400` exactly and the project targets `net10.0`. |
+| Runtime | `global.json` selects repository-selected SDK exactly and the project targets the configured target framework. |
 | Dependency graph | NuGet restore uses the committed lock graph in `--locked-mode`. |
 | Dependency audit | Direct and transitive packages are audited; HIGH/CRITICAL advisories are build-breaking. |
 | Compile quality | Warnings are errors. |
@@ -234,7 +234,7 @@ Grid changes where browser commands execute, not test architecture. Page/test co
 
 The repository uses layered controls because no one scanner answers every question:
 
-1. `global.json` pins SDK `10.0.400` with roll-forward disabled.
+1. `global.json` pins repository-selected SDK with roll-forward disabled.
 2. Explicit PackageReferences define direct package intent.
 3. `packages.lock.json` records the resolved dependency graph.
 4. CI and security workflows use `dotnet restore --locked-mode` so unexpected graph drift fails instead of silently rewriting the lock.
@@ -249,7 +249,7 @@ The lock file is reproducibility metadata, not a reason to ignore advisories. Co
 
 ## CI and governance
 
-Primary CI uses SDK `10.0.400`, restores the locked/audited graph, builds `net10.0` with warnings as errors, and runs headless Chrome against the deterministic local fixture with TRX, Cobertura coverage, browser evidence, and a machine-readable observability envelope.
+Primary CI uses repository-selected SDK, restores the locked/audited graph, builds the configured target framework with warnings as errors, and runs headless Chrome against the deterministic local fixture with TRX, Cobertura coverage, browser evidence, and a machine-readable observability envelope.
 
 Extended CI repeats the same dependency/build contract and executes Chrome and Firefox independently. Security and documentation workflows remain separately attributable gates.
 

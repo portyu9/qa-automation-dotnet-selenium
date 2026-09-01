@@ -6,8 +6,8 @@ The UI framework separates user-flow intent from execution policy. Tests compose
 
 ```mermaid
 flowchart LR
-    SDK[.NET SDK 10.0.400] --> LOCK[Locked NuGet graph]
-    LOCK --> TEST[xUnit v3 tests]
+    SDK[.NET repository-selected SDK] --> LOCK[Locked NuGet graph]
+    LOCK --> TEST[xUnit tests]
     TEST --> COLLECTION[Local UI collection]
     COLLECTION --> FIX[LocalUiServer]
     TEST --> SESSION[BrowserTestSession]
@@ -28,7 +28,7 @@ The required path is fully repository-owned: .NET hosts the local fixture, xUnit
 
 ## Runtime and dependency contract
 
-The project targets `net10.0` and uses xUnit v3. `global.json` selects SDK `10.0.400` with roll-forward disabled so local and CI execution use the same feature band rather than silently accepting an ambient SDK.
+The project targets the configured target framework and uses xUnit. `global.json` selects repository-selected SDK with roll-forward disabled so local and CI execution use the same feature band rather than silently accepting an ambient SDK.
 
 Dependency resolution is similarly explicit:
 
@@ -176,7 +176,7 @@ Dependabot maintains NuGet and GitHub Actions dependencies. Workflow actions are
 
 ## CI boundary
 
-Primary CI uses SDK `10.0.400`, restores `packages.lock.json` in locked mode, audits HIGH/CRITICAL advisories, builds `net10.0` with warnings as errors, and runs Chrome against the repository-owned fixture. TRX, XPlat/Cobertura coverage, browser failure evidence, and a CI observability envelope are retained.
+Primary CI uses repository-selected SDK, restores `packages.lock.json` in locked mode, audits HIGH/CRITICAL advisories, builds the configured target framework with warnings as errors, and runs Chrome against the repository-owned fixture. TRX, XPlat/Cobertura coverage, browser failure evidence, and a CI observability envelope are retained.
 
 Extended CI applies the same restore/build policy to Chrome and Firefox independently. Jobs have read-only repository permissions, superseded-run cancellation, explicit time bounds, run IDs, and bounded evidence retention.
 
