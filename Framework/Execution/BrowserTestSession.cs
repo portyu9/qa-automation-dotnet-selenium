@@ -12,6 +12,7 @@ namespace UiTests.Framework.Execution;
 public sealed class BrowserTestSession : IDisposable
 {
     private bool disposed;
+    private bool causalTestFailure;
 
     public BrowserTestSession(TestSettings? settings = null)
     {
@@ -33,6 +34,7 @@ public sealed class BrowserTestSession : IDisposable
         }
         catch
         {
+            causalTestFailure = true;
             try
             {
                 ArtifactCollector.Capture(Driver, testName, Settings.RunId);
@@ -51,18 +53,32 @@ public sealed class BrowserTestSession : IDisposable
         if (disposed) return;
         disposed = true;
 
+        var cleanupFailures = new List<Exception>(capacity: 2);
         try
         {
             Driver.Quit();
         }
-        catch (WebDriverException error)
+        catch (Exception error)
         {
+            cleanupFailures.Add(error);
             Console.Error.WriteLine(
-                $"[driver-cleanup:{Settings.RunId}] {error.GetType().Name}");
+                $"[driver-quit:{Settings.RunId}] {error.GetType().Name}");
         }
-        finally
+
+        try
         {
             Driver.Dispose();
+        }
+        catch (Exception error)
+        {
+            cleanupFailures.Add(error);
+            Console.Error.WriteLine(
+                $"[driver-dispose:{Settings.RunId}] {error.GetType().Name}");
+        }
+
+        if (!causalTestFailure && cleanupFailures.Count > 0)
+        {
+            throw new AggregateException("WebDriver cleanup failed after an otherwise successful test.", cleanupFailures);
         }
     }
 }
