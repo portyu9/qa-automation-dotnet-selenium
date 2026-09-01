@@ -22,6 +22,10 @@ SECURITY_BADGE_RE = re.compile(
 )
 MERMAID_RE = re.compile(r"```mermaid\s*\n(.*?)```", re.DOTALL)
 TEXT_FENCE_RE = re.compile(r"```text\s*\n(.*?)```", re.DOTALL)
+REPOSITORY_MAP_RE = re.compile(
+    r"## Repository map\s*\n\s*```text\s*\n(.*?)```",
+    re.DOTALL,
+)
 FLOW_GLYPHS = frozenset("↓↑←→↙↘↖↗")
 MERMAID_ROOTS = (
     "flowchart",
@@ -123,6 +127,31 @@ def validate_text_diagrams(text: str, errors: list[str]) -> None:
             )
 
 
+def validate_repository_map(text: str, errors: list[str]) -> None:
+    match = REPOSITORY_MAP_RE.search(text)
+    if not match:
+        fail("README must contain a fenced `## Repository map` directory tree", errors)
+        return
+
+    entries = 0
+    for raw_line in match.group(1).splitlines():
+        line = raw_line.strip()
+        if not line or line == ".":
+            continue
+        entry = re.sub(r"^[\s│├└─]+", "", raw_line).strip()
+        if not entry:
+            continue
+        entries += 1
+        if not entry.endswith("/"):
+            fail(
+                f"README repository map must contain directories only; found non-directory entry: {entry}",
+                errors,
+            )
+
+    if entries == 0:
+        fail("README repository map is empty", errors)
+
+
 def main() -> int:
     errors: list[str] = []
 
@@ -140,6 +169,7 @@ def main() -> int:
     validate_badge_palette(text, errors)
     validate_mermaid(text, errors)
     validate_text_diagrams(text, errors)
+    validate_repository_map(text, errors)
 
     if errors:
         print("README contract failed:")

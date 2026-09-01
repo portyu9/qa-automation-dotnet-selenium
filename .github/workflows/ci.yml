@@ -48,27 +48,12 @@ jobs:
           --coverlet-include-test-assembly
           --coverlet-include "[UiTests]UiTests.Framework.*"
           --coverlet-include "[UiTests]UiTests.PageObjects.*"
-      - name: Validate meaningful framework coverage evidence
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import xml.etree.ElementTree as ET
-
-          reports = sorted(Path("TestResults").rglob("coverage.cobertura.*.xml"))
-          if len(reports) != 1:
-              raise SystemExit(f"expected exactly one Cobertura report, found {len(reports)}: {reports}")
-          root = ET.parse(reports[0]).getroot()
-          lines_valid = int(root.attrib.get("lines-valid", "0"))
-          packages = root.find("packages")
-          package_count = len(list(packages)) if packages is not None else 0
-          if lines_valid <= 0 or package_count <= 0:
-              raise SystemExit(
-                  f"coverage report is structurally empty: lines-valid={lines_valid}, packages={package_count}"
-              )
-          print(f"coverage contract: {reports[0]} lines-valid={lines_valid} packages={package_count}")
-          PY
+      - name: Validate semantic test and coverage evidence
+        run: >-
+          python .github/scripts/validate_test_evidence.py TestResults
+          --min-tests 28
+          --min-line-rate 0.80
+          --min-branch-rate 0.55
       - name: Publish CI observability summary
         if: always()
         env:
@@ -80,7 +65,7 @@ jobs:
             --arg status "$JOB_STATUS" \
             --arg sha "$GITHUB_SHA" \
             --arg ref "$GITHUB_REF" \
-            '{schemaVersion:1,framework:"selenium-xunit-v3-mtp",runId:$runId,dimension:{dotnet:"10.0.400",targetFramework:"net10.0",browser:"chrome",target:"local-fixture"},status:$status,sha:$sha,ref:$ref}' \
+            '{schemaVersion:1,framework:"selenium-xunit-v3-mtp",runId:$runId,dimension:{dotnet:"10.0.400",targetFramework:"net10.0",browser:"chrome",target:"local-fixture"},qualityFloor:{executedTests:28,lineCoverage:0.80,branchCoverage:0.55},status:$status,sha:$sha,ref:$ref}' \
             > artifacts/ci/observability.json
           {
             echo '### Selenium / xUnit v3 / MTP · Chrome'
@@ -92,7 +77,7 @@ jobs:
             echo '- Target framework: `net10.0`'
             echo '- NuGet: committed dependency graph + `--locked-mode` + HIGH/CRITICAL audit-to-error policy'
             echo '- Target: repository-owned loopback fixture'
-            echo '- Coverage scope: `UiTests.Framework.*` + `UiTests.PageObjects.*`; structurally empty Cobertura is rejected'
+            echo '- Evidence floor: at least `28` executed tests, all passing; Cobertura counters must reconcile; line coverage `>=80%`; branch coverage `>=55%`'
             echo '- Evidence: MTP TRX + coverlet.MTP Cobertura + browser failure artifacts + CI observability envelope'
           } | tee artifacts/ci/summary.md >> "$GITHUB_STEP_SUMMARY"
       - name: Upload test evidence
@@ -103,5 +88,22 @@ jobs:
           path: |
             TestResults/
             artifacts/
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 14
+
+  ci-gate:
+    name: ci-gate
+    if: always()
+    needs: [test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate required CI jobs
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+        run: |
+          if [[ "$TEST_RESULT" != "success" ]]; then
+            echo "required CI job failed: test=$TEST_RESULT" >&2
+            exit 1
+          fi
+          echo 'Required CI jobs succeeded.'
