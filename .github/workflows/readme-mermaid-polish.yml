@@ -1,0 +1,46 @@
+name: Apply README Mermaid polish
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Replace Architecture Mermaid block
+        env:
+          MERMAID_B64: YGBgbWVybWFpZApmbG93Y2hhcnQgTFIKICAgIFNES1tSZXBvc2l0b3J5LXBpbm5lZCAuTkVUIFNES10gLS0+IFRFU1RbeFVuaXRdCiAgICBURVNUIC0tPiBTRVNTSU9OW0Jyb3dzZXJUZXN0U2Vzc2lvbl0KICAgIFNFU1NJT04gLS0+IENGR1tUZXN0U2V0dGluZ3NdCiAgICBTRVNTSU9OIC0tPiBEUklWRVJbV2ViRHJpdmVyRmFjdG9yeV0KICAgIFRFU1QgLS0+IFBBR0VbUGFnZSBvYmplY3RzXQogICAgUEFHRSAtLT4gV0FJVFtCcm93c2VyV2FpdF0KICAgIFRFU1QgLS0+IEZJWFtMb2NhbFVpU2VydmVyIGZpeHR1cmVdCiAgICBURVNUIC0tPiBXSU5ET1dbQnJvd3NlcldpbmRvd1Njb3BlXQogICAgRFJJVkVSIC0tPiBCUk9XU0VSW0Nocm9tZSDCtyBGaXJlZm94IMK3IEVkZ2UgwrcgR3JpZF0KICAgIEJST1dTRVIgLS0+IEZJWAogICAgV0lORE9XIC0tPiBCUk9XU0VSCiAgICBTRVNTSU9OIC0tPiBBUlRbQXJ0aWZhY3RDb2xsZWN0b3JdCiAgICBBUlQgLS0+IEVWW0ZhaWx1cmUgZXZpZGVuY2VdCgogICAgY2xhc3NEZWYgZW50cnkgZmlsbDojZGRmNGZmLHN0cm9rZTojMDk2OWRhLGNvbG9yOiMyNDI5MmYsc3Ryb2tlLXdpZHRoOjEuNXB4OwogICAgY2xhc3NEZWYgcG9saWN5IGZpbGw6I2ZiZWZmZixzdHJva2U6IzgyNTBkZixjb2xvcjojMjQyOTJmLHN0cm9rZS13aWR0aDoxLjVweDsKICAgIGNsYXNzRGVmIHJ1bnRpbWUgZmlsbDojZmZmOGM1LHN0cm9rZTojOWE2NzAwLGNvbG9yOiMyNDI5MmYsc3Ryb2tlLXdpZHRoOjEuNXB4OwogICAgY2xhc3NEZWYgZXZpZGVuY2UgZmlsbDojZGFmYmUxLHN0cm9rZTojMWE3ZjM3LGNvbG9yOiMyNDI5MmYsc3Ryb2tlLXdpZHRoOjEuNXB4OwogICAgY2xhc3MgU0RLLFRFU1QgZW50cnk7CiAgICBjbGFzcyBDRkcsRFJJVkVSLFdBSVQsV0lORE9XIHBvbGljeTsKICAgIGNsYXNzIFNFU1NJT04sUEFHRSxGSVgsQlJPV1NFUiBydW50aW1lOwogICAgY2xhc3MgQVJULEVWIGV2aWRlbmNlOwogICAgbGlua1N0eWxlIGRlZmF1bHQgc3Ryb2tlOiM1NzYwNmEsc3Ryb2tlLXdpZHRoOjEuNHB4OwpgYGA=
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          path = Path("README.md")
+          text = path.read_text(encoding="utf-8")
+          anchor = text.index("## Architecture")
+          start = text.index("```mermaid", anchor)
+          end = text.index("\n```", start) + len("\n```")
+          replacement = base64.b64decode(os.environ["MERMAID_B64"]).decode("utf-8")
+          updated = text[:start] + replacement + text[end:]
+          if updated == text:
+              raise SystemExit("README Mermaid replacement produced no change")
+          path.write_text(updated, encoding="utf-8")
+          PY
+          rm .github/workflows/readme-mermaid-polish.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md .github/workflows/readme-mermaid-polish.yml
+          git commit -m "docs: polish README architecture diagram"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
