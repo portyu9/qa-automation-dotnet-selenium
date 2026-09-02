@@ -56,10 +56,12 @@ flowchart LR
     ART --> EV[Failure evidence]
 
     classDef entry fill:#ddf4ff,stroke:#0969da,color:#24292f,stroke-width:1.5px;
-    classDef core fill:#f6f8fa,stroke:#57606a,color:#24292f,stroke-width:1.5px;
+    classDef policy fill:#fbefff,stroke:#8250df,color:#24292f,stroke-width:1.5px;
+    classDef runtime fill:#fff8c5,stroke:#9a6700,color:#24292f,stroke-width:1.5px;
     classDef evidence fill:#dafbe1,stroke:#1a7f37,color:#24292f,stroke-width:1.5px;
     class SDK,TEST entry;
-    class SESSION,CFG,DRIVER,PAGE,WAIT,FIX,WINDOW,BROWSER core;
+    class CFG,DRIVER,WAIT,WINDOW policy;
+    class SESSION,PAGE,FIX,BROWSER runtime;
     class ART,EV evidence;
     linkStyle default stroke:#57606a,stroke-width:1.4px;
 ```
