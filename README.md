@@ -41,7 +41,8 @@ A C# browser quality-engineering framework built on **.NET LTS, xUnit, and Selen
 
 ```mermaid
 flowchart LR
-    SDK[Repository-pinned .NET SDK] --> TEST[xUnit]
+    CHANGE[Repository change] --> SDK[Repository-pinned .NET SDK]
+    SDK --> TEST[xUnit]
     TEST --> SESSION[BrowserTestSession]
     SESSION --> CFG[TestSettings]
     SESSION --> DRIVER[WebDriverFactory]
@@ -54,15 +55,36 @@ flowchart LR
     WINDOW --> BROWSER
     SESSION --> ART[ArtifactCollector]
     ART --> EV[Failure evidence]
+    EV --> CIG[CI / ci-gate]
+
+    CHANGE --> LOCK[Locked NuGet restore + advisory policy]
+    LOCK --> CIG
+
+    CHANGE --> EXT[Chrome + Firefox compatibility]
+    EXT --> EG[Extended / extended-gate]
+
+    CHANGE --> DOCS[README + workflow contracts]
+    DOCS --> DG[Docs / docs-contract]
+
+    SAST[CodeQL] --> SG[Security / security-gate]
+    TRIVY[Trivy repository scan] --> SG
+    REVIEW[Dependency Review when available] --> SG
+
+    CIG --> RESULT[Qualified repository change]
+    EG --> RESULT
+    DG --> RESULT
+    SG --> RESULT
 
     classDef entry fill:#ddf4ff,stroke:#0969da,color:#24292f,stroke-width:1.5px;
     classDef policy fill:#fbefff,stroke:#8250df,color:#24292f,stroke-width:1.5px;
     classDef runtime fill:#fff8c5,stroke:#9a6700,color:#24292f,stroke-width:1.5px;
     classDef evidence fill:#dafbe1,stroke:#1a7f37,color:#24292f,stroke-width:1.5px;
-    class SDK,TEST entry;
-    class CFG,DRIVER,WAIT,WINDOW policy;
-    class SESSION,PAGE,FIX,BROWSER runtime;
-    class ART,EV evidence;
+    classDef gate fill:#ffebe9,stroke:#cf222e,color:#24292f,stroke-width:1.5px;
+    class CHANGE,SDK,TEST entry;
+    class CFG,DRIVER,WAIT,WINDOW,LOCK,DOCS policy;
+    class SESSION,PAGE,FIX,BROWSER,EXT runtime;
+    class ART,EV,RESULT evidence;
+    class CIG,EG,DG,SAST,TRIVY,REVIEW,SG gate;
     linkStyle default stroke:#57606a,stroke-width:1.4px;
 ```
 
