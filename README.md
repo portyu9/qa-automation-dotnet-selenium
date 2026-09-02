@@ -41,7 +41,7 @@ A C# browser quality-engineering framework built on **.NET LTS, xUnit, and Selen
 
 ```mermaid
 flowchart LR
-    SDK[.NET.0.400] --> TEST[xUnit]
+    SDK[Repository-pinned .NET SDK] --> TEST[xUnit]
     TEST --> SESSION[BrowserTestSession]
     SESSION --> CFG[TestSettings]
     SESSION --> DRIVER[WebDriverFactory]
