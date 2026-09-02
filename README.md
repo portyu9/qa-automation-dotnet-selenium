@@ -67,6 +67,7 @@ flowchart LR
     DOCS --> DG[Docs / docs-contract]
 
     SAST[CodeQL] --> SG[Security / security-gate]
+    AUDIT[NuGet locked audit] --> SG
     TRIVY[Trivy repository scan] --> SG
     REVIEW[Dependency Review when available] --> SG
 
@@ -84,7 +85,7 @@ flowchart LR
     class CFG,DRIVER,WAIT,WINDOW,LOCK,DOCS policy;
     class SESSION,PAGE,FIX,BROWSER,EXT runtime;
     class ART,EV,RESULT evidence;
-    class CIG,EG,DG,SAST,TRIVY,REVIEW,SG gate;
+    class CIG,EG,DG,SAST,AUDIT,TRIVY,REVIEW,SG gate;
     linkStyle default stroke:#57606a,stroke-width:1.4px;
 ```
 
