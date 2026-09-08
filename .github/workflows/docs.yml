@@ -25,5 +25,7 @@ jobs:
           python-version: '3.13'
       - name: Validate README contracts
         run: python .github/scripts/validate_readme.py
+      - name: Validate qualified .NET runtime policy
+        run: python .github/scripts/validate_runtime_policy.py
       - name: Validate immutable workflow dependencies
         run: python .github/scripts/validate_workflow_pins.py
