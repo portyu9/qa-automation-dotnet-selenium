@@ -22,6 +22,16 @@ flowchart LR
     DRIVER --> FIX
     SESSION --> ART[ArtifactCollector]
     ART --> EV[Minimal failure evidence]
+
+    classDef entry fill:#DDF4FF,stroke:#0969DA,color:#24292F,stroke-width:1.5px;
+    classDef policy fill:#FBEFFF,stroke:#8250DF,color:#24292F,stroke-width:1.5px;
+    classDef runtime fill:#FFF8C5,stroke:#9A6700,color:#24292F,stroke-width:1.5px;
+    classDef evidence fill:#DAFBE1,stroke:#1A7F37,color:#24292F,stroke-width:1.5px;
+    class SDK,LOCK,TEST entry;
+    class CFG,FACTORY,WAIT,CONTEXT policy;
+    class COLLECTION,FIX,SESSION,PAGE,DRIVER runtime;
+    class ART,EV evidence;
+    linkStyle default stroke:#57606A,stroke-width:1.4px;
 ```
 
 The required path is fully repository-owned: .NET hosts the local fixture, xUnit owns its lifetime, Selenium owns browser automation, and no public application is needed to determine framework health.
@@ -84,7 +94,7 @@ The factory enforces:
 5. preserve/rethrow the original exception;
 6. quit and dispose exactly once.
 
-Evidence and cleanup errors remain secondary diagnostics.
+Evidence and cleanup errors remain secondary diagnostics. The color-coded lifecycle flow is documented in [`OPERATIONS.md`](OPERATIONS.md#browser-lifecycle).
 
 ## Explicit browser-context primitives
 
