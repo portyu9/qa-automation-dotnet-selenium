@@ -223,7 +223,16 @@ class RecoverySelfCheck(unittest.TestCase):
             "Evaluate security jobs",
         ):
             self.assertNotIn(forbidden, RECOVERY["transientSteps"], forbidden)
-        self.assertTrue(validate_recovery_config({**RECOVERY, "maxRunAttempts": 4}))
+        for attempts in (1, 3, 4):
+            self.assertTrue(
+                validate_recovery_config({**RECOVERY, "maxRunAttempts": attempts}),
+                f"maxRunAttempts={attempts} must be rejected",
+            )
+        expanded = {
+            **RECOVERY,
+            "transientSteps": [*RECOVERY["transientSteps"], "Bootstrap future Selenium grid"],
+        }
+        self.assertTrue(validate_recovery_config(expanded))
 
     def test_signature_model_is_narrow_and_blockers_win(self) -> None:
         self.assertEqual(matching_transient_signatures("npm error code EAI_AGAIN"), ["dns-eai-again"])
