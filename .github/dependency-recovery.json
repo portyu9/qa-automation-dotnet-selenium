@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "enabled": true,
+  "maxRunAttempts": 2,
+  "transientSteps": [
+    "Set up .NET 10 LTS",
+    "Upload test evidence",
+    "Upload cross-browser evidence",
+    "Upload security evidence"
+  ]
+}
