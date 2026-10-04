@@ -19,8 +19,8 @@ env:
   DOTNET_SDK_VERSION: 10.0.400
 
 jobs:
-  codeql:
-    name: CodeQL
+  codeql-csharp:
+    name: CodeQL C#
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       actions: read
@@ -45,7 +45,7 @@ jobs:
             exit 1
           }
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           languages: csharp
           queries: security-extended
@@ -55,7 +55,64 @@ jobs:
       - name: Build for CodeQL
         run: dotnet build UiTests.csproj --configuration Release --no-restore
       - name: Analyze
-        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        id: analyze-csharp
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          output: reports/security/codeql-csharp
+      - name: Enforce zero CodeQL alerts
+        env:
+          SARIF_DIR: ${{ steps.analyze-csharp.outputs.sarif-output }}
+        run: python3 .github/scripts/validate_codeql_sarif.py "$SARIF_DIR"
+      - name: Upload CodeQL SARIF evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codeql-csharp-sarif-${{ github.run_id }}
+          path: reports/security/codeql-csharp/
+          if-no-files-found: error
+          retention-days: 14
+
+  codeql-automation:
+    name: CodeQL Python and Actions
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate zero-alert security implementation
+        run: |
+          python3 -m py_compile .github/scripts/validate_codeql_sarif.py .github/scripts/validate_codeql_sarif_selfcheck.py .github/scripts/validate_security_stack.py
+          python3 .github/scripts/validate_codeql_sarif_selfcheck.py
+          python3 .github/scripts/validate_security_stack.py
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          languages: python,actions
+          queries: security-extended
+      - name: Analyze
+        id: analyze-automation
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          output: reports/security/codeql-automation
+      - name: Enforce zero CodeQL alerts
+        env:
+          SARIF_DIR: ${{ steps.analyze-automation.outputs.sarif-output }}
+        run: python3 .github/scripts/validate_codeql_sarif.py "$SARIF_DIR"
+      - name: Upload CodeQL SARIF evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codeql-automation-sarif-${{ github.run_id }}
+          path: reports/security/codeql-automation/
+          if-no-files-found: error
+          retention-days: 14
 
   nuget-audit:
     name: NuGet locked audit
@@ -204,13 +261,14 @@ jobs:
   security-gate:
     name: security-gate
     if: always()
-    needs: [codeql, nuget-audit, trivy, dependency-review]
+    needs: [codeql-csharp, codeql-automation, nuget-audit, trivy, dependency-review]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Evaluate security jobs
         env:
-          CODEQL_RESULT: ${{ needs.codeql.result }}
+          CODEQL_CSHARP_RESULT: ${{ needs.codeql-csharp.result }}
+          CODEQL_AUTOMATION_RESULT: ${{ needs.codeql-automation.result }}
           NUGET_AUDIT_RESULT: ${{ needs.nuget-audit.result }}
           TRIVY_RESULT: ${{ needs.trivy.result }}
           DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency-review.result }}
@@ -221,9 +279,11 @@ jobs:
           [[ "$NUGET_AUDIT_RESULT" == "success" ]] || { echo "nuget-audit=$NUGET_AUDIT_RESULT" >&2; exit 1; }
           [[ "$TRIVY_RESULT" == "success" ]] || { echo "trivy=$TRIVY_RESULT" >&2; exit 1; }
           if [[ "$SAME_REPOSITORY_PR" == "true" ]]; then
-            [[ "$CODEQL_RESULT" == "success" ]] || { echo "codeql=$CODEQL_RESULT" >&2; exit 1; }
+            [[ "$CODEQL_CSHARP_RESULT" == "success" ]] || { echo "codeql-csharp=$CODEQL_CSHARP_RESULT" >&2; exit 1; }
+            [[ "$CODEQL_AUTOMATION_RESULT" == "success" ]] || { echo "codeql-automation=$CODEQL_AUTOMATION_RESULT" >&2; exit 1; }
           else
-            [[ "$CODEQL_RESULT" == "skipped" || "$CODEQL_RESULT" == "success" ]] || { echo "codeql=$CODEQL_RESULT" >&2; exit 1; }
+            [[ "$CODEQL_CSHARP_RESULT" == "skipped" || "$CODEQL_CSHARP_RESULT" == "success" ]] || { echo "codeql-csharp=$CODEQL_CSHARP_RESULT" >&2; exit 1; }
+            [[ "$CODEQL_AUTOMATION_RESULT" == "skipped" || "$CODEQL_AUTOMATION_RESULT" == "success" ]] || { echo "codeql-automation=$CODEQL_AUTOMATION_RESULT" >&2; exit 1; }
           fi
           if [[ "$EVENT" == "pull_request" ]]; then
             [[ "$DEPENDENCY_REVIEW_RESULT" == "success" ]] || { echo "dependency-review=$DEPENDENCY_REVIEW_RESULT" >&2; exit 1; }
