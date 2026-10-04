@@ -129,7 +129,7 @@ def validate_config(config: dict[str, Any]) -> list[str]:
             if not all(nonempty(x) for x in (workflow, gate, filename)):
                 errors.append("each required workflow needs workflow, gate, and file")
                 continue
-            if "/" in filename or not re.fullmatch(r"[A-Za-z0-9._-]+\\.ya?ml", filename):
+            if "/" in filename or not re.fullmatch(r"[A-Za-z0-9._-]+\.ya?ml", filename):
                 errors.append(f"workflow file {filename} must be a workflow basename")
             if workflow in names:
                 errors.append(f"duplicate workflow {workflow}")
