@@ -11,6 +11,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,12 +22,10 @@ DEFAULT_CONFIG = ROOT / ".github" / "dependency-governance.json"
 PAGE_SIZE = 100
 SAFE_TERMINAL_CONCLUSIONS = {"success", "neutral", "skipped"}
 ACTION_LINE = re.compile(
-    r"^(?P<prefix>\s*-\s+uses:\s+)(?P<action>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)"
+    r"^(?P<prefix>\s*(?:-\s+)?uses:\s+)(?P<action>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)"
     r"@(?P<ref>[0-9a-fA-F]{40})(?P<suffix>\s+#\s+v(?P<version>\d+(?:\.\d+){0,2})\s*)$"
 )
 POSITIVE_INT = re.compile(r"^[1-9]\d*$")
-
-
 class GovernanceError(RuntimeError):
     """Operational/configuration failure: the workflow should fail."""
 
@@ -86,13 +85,8 @@ def validate_config(config: dict[str, Any]) -> list[str]:
     if not isinstance(config.get("botUserId"), int) or config["botUserId"] <= 0:
         errors.append("botUserId must be a positive integer")
     for key in (
-        "botAuthorEmail",
-        "trustedCommitterLogin",
-        "gitCommitterName",
-        "gitCommitterEmail",
-        "signedOffBy",
-        "baseBranch",
-        "statusCommentMarker",
+        "botAuthorEmail", "trustedCommitterLogin", "gitCommitterName",
+        "gitCommitterEmail", "signedOffBy", "baseBranch", "statusCommentMarker",
     ):
         if not nonempty(config.get(key)):
             errors.append(f"{key} must be non-empty")
@@ -100,6 +94,12 @@ def validate_config(config: dict[str, Any]) -> list[str]:
         errors.append("mergeMethod is invalid")
     if not isinstance(config.get("automergeEnabled"), bool):
         errors.append("automergeEnabled must be boolean")
+    if config.get("ownerApprovalRequired") is not True:
+        errors.append("ownerApprovalRequired must remain true")
+    if not nonempty(config.get("ownerApprovalLogin")):
+        errors.append("ownerApprovalLogin must be non-empty")
+    if not isinstance(config.get("ownerApprovalUserId"), int) or config.get("ownerApprovalUserId", 0) <= 0:
+        errors.append("ownerApprovalUserId must be a positive integer")
 
     for key, maximum in (
         ("maxChangedFiles", 100),
@@ -129,7 +129,7 @@ def validate_config(config: dict[str, Any]) -> list[str]:
             if not all(nonempty(x) for x in (workflow, gate, filename)):
                 errors.append("each required workflow needs workflow, gate, and file")
                 continue
-            if "/" in filename or not re.fullmatch(r"[A-Za-z0-9._-]+\.ya?ml", filename):
+            if "/" in filename or not re.fullmatch(r"[A-Za-z0-9._-]+\\.ya?ml", filename):
                 errors.append(f"workflow file {filename} must be a workflow basename")
             if workflow in names:
                 errors.append(f"duplicate workflow {workflow}")
@@ -170,12 +170,18 @@ def validate_config(config: dict[str, Any]) -> list[str]:
         errors.append("ecosystems must be configured")
         return unique(errors)
     nuget = ecosystems.get("nuget")
-    if not isinstance(nuget, dict) or nuget.get("mode") != "manual":
-        errors.append("nuget ecosystem must be explicitly manual")
-    elif not isinstance(nuget.get("files"), list) or nuget.get("files") != ["UiTests.csproj", "packages.lock.json"]:
+    if not isinstance(nuget, dict) or nuget.get("mode") != "semantic":
+        errors.append("nuget ecosystem must use semantic mode")
+    elif nuget.get("files") != ["UiTests.csproj", "packages.lock.json"]:
         errors.append("nuget files must be exactly ['UiTests.csproj', 'packages.lock.json']")
-    elif not nonempty(nuget.get("reason")):
-        errors.append("nuget manual-review reason must be non-empty")
+    else:
+        updates = nuget.get("allowedUpdateTypes")
+        if (
+            not isinstance(updates, list)
+            or not updates
+            or any("major" in str(update) for update in updates)
+        ):
+            errors.append("nuget allowedUpdateTypes must exist and never include major updates")
 
     actions = ecosystems.get("github-actions")
     if not isinstance(actions, dict):
@@ -481,14 +487,10 @@ def validate_actions_semantic_change(
 ) -> dict[str, Any]:
     reasons: list[str] = []
     changes: list[dict[str, str]] = []
-    manual_paths = set(config["manualReviewPaths"])
     metadata_by_name = {item.get("name"): item for item in metadata if item.get("name")}
 
     for file in files:
         filename = str(file.get("filename") or "")
-        if filename in manual_paths:
-            reasons.append(f"{filename} is dependency-governance control plane and requires manual review")
-            continue
         before = base_contents.get(filename)
         after = head_contents.get(filename)
         if before is None or after is None:
@@ -527,24 +529,38 @@ def validate_actions_semantic_change(
                 reasons.append(f"{action} uses non-autonomous update type {update_type or 'unknown'}")
 
             old_version, new_version = old_match.group("version"), new_match.group("version")
+            risk = compare_versions(old_version, new_version)
+            signed_risk = (
+                "patch" if str(update_type or "").endswith("semver-patch")
+                else "minor" if str(update_type or "").endswith("semver-minor")
+                else None
+            )
+            if risk in {"major", "major-risk", "downgrade", "unknown"}:
+                reasons.append(f"{action} action annotation transition is {risk}")
+            elif risk in {"patch", "minor"} and signed_risk != risk:
+                reasons.append(
+                    f"{action} signed Dependabot update class {signed_risk or 'unknown'} contradicts "
+                    f"workflow annotation transition {risk}"
+                )
+            elif risk == "same" and update_type not in config["allowedActionUpdateTypes"]:
+                reasons.append(f"{action} coarse action annotation cannot prove a non-major update")
+
             signed_version = signed.get("version")
             if signed_version:
                 parsed_signed = parse_version(signed_version)
                 parsed_annotation = parse_version(new_version)
                 if parsed_signed is None or parsed_annotation is None:
                     reasons.append(f"{action} signed or annotated version is not a stable numeric release")
-                else:
-                    annotation_parts = len(new_version.split("."))
-                    if parsed_signed[:annotation_parts] != parsed_annotation[:annotation_parts]:
-                        reasons.append(
-                            f"{action} signed Dependabot version {signed_version} contradicts "
-                            f"workflow annotation v{new_version}"
-                        )
-            risk = compare_versions(old_version, new_version)
-            if risk in {"major", "major-risk", "downgrade", "unknown"}:
-                reasons.append(f"{action} action annotation transition is {risk}")
-            elif risk == "same" and update_type not in config["allowedActionUpdateTypes"]:
-                reasons.append(f"{action} coarse action annotation cannot prove a non-major update")
+                elif signed_risk == "patch" and parsed_signed[:2] != parsed_annotation[:2]:
+                    reasons.append(
+                        f"{action} signed Dependabot patch version {signed_version} leaves "
+                        f"workflow annotation line v{new_version}"
+                    )
+                elif signed_risk == "minor" and parsed_signed[0] != parsed_annotation[0]:
+                    reasons.append(
+                        f"{action} signed Dependabot minor version {signed_version} leaves "
+                        f"workflow annotation major v{new_version}"
+                    )
             changes.append(
                 {
                     "ecosystem": "github-actions",
@@ -568,12 +584,183 @@ def validate_actions_semantic_change(
     return {"eligible": not reasons, "reasons": unique(reasons), "changes": changes}
 
 
-def validate_nuget_manual(config: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "eligible": False,
-        "reasons": [config["ecosystems"]["nuget"]["reason"]],
-        "changes": [],
+def _nuget_package_versions(project_text: str) -> dict[str, str]:
+    try:
+        root = ET.fromstring(project_text)
+    except ET.ParseError as exc:
+        raise GovernanceError(f"unable to parse UiTests.csproj: {exc}") from exc
+    versions: dict[str, str] = {}
+    for node in root.iter("PackageReference"):
+        name = str(node.attrib.get("Include") or node.attrib.get("Update") or "").strip()
+        version = str(node.attrib.get("Version") or "").strip()
+        if not version:
+            child = node.find("Version")
+            version = str(child.text or "").strip() if child is not None else ""
+        if not name or not version:
+            raise GovernanceError("every PackageReference must use an explicit package name and version")
+        if name in versions:
+            raise GovernanceError(f"duplicate PackageReference {name}")
+        versions[name] = version
+    return versions
+
+
+def _normalized_nuget_project(project_text: str, mutable_names: set[str]) -> str:
+    try:
+        root = ET.fromstring(project_text)
+    except ET.ParseError as exc:
+        raise GovernanceError(f"unable to parse UiTests.csproj: {exc}") from exc
+    for node in root.iter("PackageReference"):
+        name = str(node.attrib.get("Include") or node.attrib.get("Update") or "").strip()
+        if name not in mutable_names:
+            continue
+        if "Version" in node.attrib:
+            node.attrib["Version"] = "__DEPENDABOT_VERSION__"
+        else:
+            child = node.find("Version")
+            if child is None:
+                raise GovernanceError(f"PackageReference {name} has no version field")
+            child.text = "__DEPENDABOT_VERSION__"
+    return ET.tostring(root, encoding="unicode")
+
+
+def _lock_direct_packages(payload: dict[str, Any]) -> tuple[set[str], dict[str, set[str]]]:
+    dependencies = payload.get("dependencies")
+    if not isinstance(dependencies, dict) or not dependencies:
+        raise GovernanceError("packages.lock.json has no target-framework dependency graph")
+    frameworks: set[str] = set()
+    direct_by_framework: dict[str, set[str]] = {}
+    for framework, graph in dependencies.items():
+        if not isinstance(framework, str) or not isinstance(graph, dict):
+            raise GovernanceError("packages.lock.json contains an invalid target-framework graph")
+        frameworks.add(framework)
+        direct_by_framework[framework] = {
+            name
+            for name, item in graph.items()
+            if isinstance(name, str) and isinstance(item, dict) and item.get("type") == "Direct"
+        }
+    return frameworks, direct_by_framework
+
+
+def validate_nuget_semantic_change(
+    base_project_text: str,
+    head_project_text: str,
+    base_lock_text: str,
+    head_lock_text: str,
+    metadata: list[dict[str, str]],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    reasons: list[str] = []
+    changes: list[dict[str, str]] = []
+    try:
+        before_versions = _nuget_package_versions(base_project_text)
+        after_versions = _nuget_package_versions(head_project_text)
+    except GovernanceError as exc:
+        return {"eligible": False, "reasons": [str(exc)], "changes": []}
+
+    if set(before_versions) != set(after_versions):
+        reasons.append("UiTests.csproj changes the direct PackageReference set")
+
+    metadata_by_name = {item.get("name"): item for item in metadata if item.get("name")}
+    changed = {
+        name
+        for name in set(before_versions) & set(after_versions)
+        if before_versions[name] != after_versions[name]
     }
+    metadata_names = set(metadata_by_name)
+    missing = sorted(changed - metadata_names)
+    extras = sorted(metadata_names - changed)
+    if missing:
+        reasons.append(
+            "project version changes absent from signed Dependabot metadata: " + ", ".join(missing)
+        )
+    if extras:
+        reasons.append(
+            "signed metadata changes not proven in UiTests.csproj: " + ", ".join(extras)
+        )
+
+    try:
+        if _normalized_nuget_project(base_project_text, changed) != _normalized_nuget_project(
+            head_project_text, changed
+        ):
+            reasons.append(
+                "UiTests.csproj changes policy or structure outside signed PackageReference versions"
+            )
+    except GovernanceError as exc:
+        reasons.append(str(exc))
+
+    allowed_updates = set(config["ecosystems"]["nuget"]["allowedUpdateTypes"])
+    for name in sorted(changed):
+        signed = metadata_by_name.get(name) or {}
+        update_type = signed.get("updateType")
+        old_version, new_version = before_versions[name], after_versions[name]
+        if update_type not in allowed_updates:
+            reasons.append(f"{name} uses non-autonomous update type {update_type or 'unknown'}")
+            continue
+        if signed.get("version") and signed.get("version") != new_version:
+            reasons.append(
+                f"{name} signed Dependabot version {signed.get('version')} contradicts UiTests.csproj {new_version}"
+            )
+            continue
+        risk = compare_versions(old_version, new_version)
+        signed_risk = (
+            "patch"
+            if str(update_type).endswith("semver-patch")
+            else "minor"
+            if str(update_type).endswith("semver-minor")
+            else None
+        )
+        if risk not in {"patch", "minor"}:
+            reasons.append(f"{name} NuGet transition is {risk}")
+            continue
+        if signed_risk != risk:
+            reasons.append(
+                f"{name} signed Dependabot update class {signed_risk or 'unknown'} contradicts "
+                f"project transition {risk}"
+            )
+            continue
+        changes.append(
+            {"ecosystem": "nuget", "name": name, "from": old_version, "to": new_version, "risk": risk}
+        )
+
+    try:
+        base_lock = json.loads(base_lock_text)
+        head_lock = json.loads(head_lock_text)
+        if not isinstance(base_lock, dict) or not isinstance(head_lock, dict):
+            raise GovernanceError("lock root is not an object")
+        if base_lock.get("version") != head_lock.get("version"):
+            reasons.append("packages.lock.json changes lock schema version")
+        base_frameworks, base_direct = _lock_direct_packages(base_lock)
+        head_frameworks, head_direct = _lock_direct_packages(head_lock)
+        if base_frameworks != head_frameworks:
+            reasons.append("packages.lock.json changes target-framework set")
+        if base_direct != head_direct:
+            reasons.append("packages.lock.json changes the direct package set")
+        for framework in sorted(base_frameworks & head_frameworks):
+            graph = (head_lock.get("dependencies") or {}).get(framework) or {}
+            for name in sorted(changed):
+                item = graph.get(name)
+                if not isinstance(item, dict) or item.get("type") != "Direct":
+                    reasons.append(
+                        f"packages.lock.json does not retain {name} as direct for {framework}"
+                    )
+                    continue
+                requested = str(item.get("requested") or "")
+                resolved = str(item.get("resolved") or "")
+                new_version = after_versions[name]
+                if resolved != new_version:
+                    reasons.append(
+                        f"packages.lock.json resolves {name} to {resolved or 'missing'} instead of {new_version}"
+                    )
+                if new_version not in requested:
+                    reasons.append(
+                        f"packages.lock.json requested range for {name} does not bind signed version {new_version}"
+                    )
+    except (json.JSONDecodeError, GovernanceError) as exc:
+        reasons.append(f"unable to validate packages.lock.json: {exc}")
+
+    if not changes:
+        reasons.append("no signed NuGet package transition could be proven")
+    return {"eligible": not reasons, "reasons": unique(reasons), "changes": changes}
 
 
 def workflow_identity_matches(
@@ -746,16 +933,8 @@ def assess_pull(
             [],
             "unknown",
             fallback,
-            {
-                "eligible": False,
-                "reasons": ["provenance could not be established"],
-                "metadata": [],
-            },
-            {
-                "eligible": False,
-                "reasons": ["change semantics were not evaluated"],
-                "changes": [],
-            },
+            {"eligible": False, "reasons": ["provenance could not be established"], "metadata": []},
+            {"eligible": False, "reasons": ["change semantics were not evaluated"], "changes": []},
             {"allSuccess": False, "anyFailed": False, "qualifications": []}
             if include_qualification
             else None,
@@ -773,16 +952,31 @@ def assess_pull(
     )
     ecosystem = classify_ecosystem(files, config)
 
-    if ecosystem == "nuget":
-        semantic = validate_nuget_manual(config)
-    elif ecosystem == "github-actions" and provenance["eligible"] and metadata["eligible"]:
-        base_ref = base_sha
+    if ecosystem == "nuget" and provenance["eligible"] and metadata["eligible"]:
         head_ref = (pull.get("head") or {}).get("sha")
+        semantic = validate_nuget_semantic_change(
+            api.file_at("UiTests.csproj", base_sha),
+            api.file_at("UiTests.csproj", head_ref),
+            api.file_at("packages.lock.json", base_sha),
+            api.file_at("packages.lock.json", head_ref),
+            metadata["metadata"],
+            config,
+        )
+    elif ecosystem == "nuget":
+        semantic = {
+            "eligible": False,
+            "reasons": [
+                "semantic NuGet evaluation skipped because provenance or signed metadata is not eligible"
+            ],
+            "changes": [],
+        }
+    elif ecosystem == "github-actions" and provenance["eligible"] and metadata["eligible"]:
         base_contents: dict[str, str] = {}
         head_contents: dict[str, str] = {}
+        head_ref = (pull.get("head") or {}).get("sha")
         for file in files:
             filename = str(file.get("filename") or "")
-            base_contents[filename] = api.file_at(filename, base_ref)
+            base_contents[filename] = api.file_at(filename, base_sha)
             head_contents[filename] = api.file_at(filename, head_ref)
         semantic = validate_actions_semantic_change(
             files, base_contents, head_contents, metadata["metadata"], config
@@ -899,9 +1093,9 @@ def render_comment(
             "",
             "> Safety invariant: privileged governance executes only trusted default-branch code, "
             "requires an untouched GitHub-signed Dependabot commit directly on current main, proves "
-            "exact workflow identities and stable gates for the exact head, never regenerates Python "
-            "locks inside a dependency PR, and never autonomously merges major, downgrade, stale-base, "
-            "aged-out, control-plane, or semantically ambiguous changes.",
+            "exact workflow identities and stable gates for the exact head, never rewrites Dependabot "
+            "branches directly, and never autonomously merges major, downgrade, stale-base, aged-out, "
+            "control-plane, or semantically ambiguous changes.",
             "",
         ]
     )
@@ -926,8 +1120,132 @@ def upsert_comment(api: GitHubApi, pull_number: int, marker: str, body: str) -> 
         api.post(f"/issues/{pull_number}/comments", {"body": body})
 
 
+
+OWNER_REVIEW_MARKER = "<!-- dependency-owner-review:v1:"
+OWNER_APPROVAL_MARKER = "<!-- dependency-owner-approval:v1:"
+OWNER_REFRESH_MARKER = "<!-- dependency-owner-refresh:v1:"
+
+
+def verify_owner_identity(owner_api: GitHubApi | None, config: dict[str, Any]) -> None:
+    if owner_api is None:
+        raise GovernanceError(
+            "DEPENDABOT_OWNER_TOKEN is required for owner-authenticated Dependabot refresh, review, and approval"
+        )
+    identity = owner_api.get("https://api.github.com/user")
+    if not isinstance(identity, dict):
+        raise GovernanceError("owner token identity response is invalid")
+    if (
+        identity.get("login") != config["ownerApprovalLogin"]
+        or identity.get("id") != config["ownerApprovalUserId"]
+    ):
+        raise GovernanceError(
+            "DEPENDABOT_OWNER_TOKEN does not authenticate the configured repository owner identity"
+        )
+
+
+def has_exact_owner_approval(
+    owner_api: GitHubApi, number: int, head_sha: str, config: dict[str, Any]
+) -> bool:
+    reviews = owner_api.paginate(f"/pulls/{number}/reviews")
+    return any(
+        review.get("state") == "APPROVED"
+        and review.get("commit_id") == head_sha
+        and (review.get("user") or {}).get("login") == config["ownerApprovalLogin"]
+        and (review.get("user") or {}).get("id") == config["ownerApprovalUserId"]
+        for review in reviews
+    )
+
+
+def ensure_owner_review_and_approval(
+    owner_api: GitHubApi | None,
+    assessment: Assessment,
+    config: dict[str, Any],
+) -> None:
+    verify_owner_identity(owner_api, config)
+    assert owner_api is not None
+    number = int(assessment.pull["number"])
+    head_sha = str((assessment.pull.get("head") or {}).get("sha") or "")
+    if not re.fullmatch(r"[0-9a-f]{40}", head_sha):
+        raise GovernanceError("Dependabot head SHA is not canonical")
+    comment_marker = f"{OWNER_REVIEW_MARKER}{head_sha} -->"
+    comments = owner_api.paginate(f"/issues/{number}/comments")
+    exact_comments = [
+        comment
+        for comment in comments
+        if comment_marker in str(comment.get("body") or "")
+        and (comment.get("user") or {}).get("login") == config["ownerApprovalLogin"]
+        and (comment.get("user") or {}).get("id") == config["ownerApprovalUserId"]
+    ]
+    if len(exact_comments) > 1:
+        raise GovernanceError(f"PR #{number} has duplicate exact-head owner review comments")
+    if not exact_comments:
+        owner_api.post(
+            f"/issues/{number}/comments",
+            {"body": (
+                f"{comment_marker}\n"
+                "## Owner-authenticated Dependabot review\n\n"
+                f"- Exact head: {head_sha}\n"
+                "- Canonical Dependabot provenance: **pass**\n"
+                "- Semantic dependency scope: **pass**\n"
+                "- Exact-head CI / Extended / Security / Docs qualification: **pass**\n"
+                "- Action: approve this exact head, revalidate it, then merge only if it remains unchanged and qualified.\n"
+            )},
+        )
+    if not has_exact_owner_approval(owner_api, number, head_sha, config):
+        owner_api.post(
+            f"/pulls/{number}/reviews",
+            {
+                "event": "APPROVE",
+                "commit_id": head_sha,
+                "body": (
+                    f"{OWNER_APPROVAL_MARKER}{head_sha} -->\n"
+                    "Owner-authenticated automated approval for this exact Dependabot head after "
+                    "canonical provenance, governed semantic scope, and all required exact-head "
+                    "qualification gates passed. Repository rules remain authoritative."
+                ),
+            },
+        )
+    if not has_exact_owner_approval(owner_api, number, head_sha, config):
+        raise GovernanceError(f"PR #{number} does not have the required exact-head owner approval")
+
+
+def request_dependabot_refresh(
+    owner_api: GitHubApi | None,
+    assessment: Assessment,
+    config: dict[str, Any],
+) -> bool:
+    stale_reason = "PR is not rebased directly on the current base branch head"
+    if assessment.provenance.get("reasons") != [stale_reason]:
+        return False
+    verify_owner_identity(owner_api, config)
+    assert owner_api is not None
+    number = int(assessment.pull["number"])
+    head_sha = str((assessment.pull.get("head") or {}).get("sha") or "")
+    marker = f"{OWNER_REFRESH_MARKER}{head_sha}:{assessment.base_sha}:rebase -->"
+    comments = owner_api.paginate(f"/issues/{number}/comments")
+    if any(
+        marker in str(comment.get("body") or "")
+        and (comment.get("user") or {}).get("login") == config["ownerApprovalLogin"]
+        and (comment.get("user") or {}).get("id") == config["ownerApprovalUserId"]
+        for comment in comments
+    ):
+        return True
+    owner_api.post(
+        f"/issues/{number}/comments",
+        {"body": (
+            "@dependabot rebase\n\n"
+            f"{marker}\n"
+            "Requested by the configured push-capable repository owner because the exact "
+            "Dependabot source commit is no longer parented on current main. Qualification "
+            "restarts on the new exact head; no merge or security gate is bypassed."
+        )},
+    )
+    return True
+
+
 def maybe_merge(
     api: GitHubApi,
+    owner_api: GitHubApi | None,
     assessment: Assessment,
     config: dict[str, Any],
     allow_merge: bool,
@@ -950,6 +1268,23 @@ def maybe_merge(
         and refreshed.metadata["eligible"]
         and refreshed.semantic["eligible"]
         and bool((refreshed.qualification or {}).get("allSuccess"))
+    )
+    if not still_eligible:
+        return False, refreshed, []
+
+    ensure_owner_review_and_approval(owner_api, refreshed, config)
+    assert owner_api is not None
+    approved_head = str((refreshed.pull.get("head") or {}).get("sha") or "")
+    refreshed = assess_pull(api, assessment.pull["number"], config, include_qualification=True)
+    still_eligible = (
+        refreshed.pull.get("state") == "open"
+        and (refreshed.pull.get("head") or {}).get("sha") == approved_head
+        and refreshed.base_sha == assessment.base_sha
+        and refreshed.provenance["eligible"]
+        and refreshed.metadata["eligible"]
+        and refreshed.semantic["eligible"]
+        and bool((refreshed.qualification or {}).get("allSuccess"))
+        and has_exact_owner_approval(owner_api, refreshed.pull["number"], approved_head, config)
     )
     if not still_eligible:
         return False, refreshed, []
@@ -998,6 +1333,7 @@ def maybe_merge(
 
 def process_pull(
     api: GitHubApi,
+    owner_api: GitHubApi | None,
     number: int,
     config: dict[str, Any],
     allow_merge: bool,
@@ -1007,7 +1343,10 @@ def process_pull(
     if user.get("login") != config["botLogin"] or user.get("id") != config["botUserId"]:
         return {"skipped": True, "reason": "not canonical Dependabot", "merged": False}
 
-    merged, final_assessment, dispatches = maybe_merge(api, assessment, config, allow_merge)
+    request_dependabot_refresh(owner_api, assessment, config)
+    merged, final_assessment, dispatches = maybe_merge(
+        api, owner_api, assessment, config, allow_merge
+    )
     body = render_comment(final_assessment, config, merged=merged, dispatches=dispatches)
     upsert_comment(api, number, config["statusCommentMarker"], body)
 
@@ -1038,6 +1377,55 @@ def reconcile_independently(
     return results, failures
 
 
+
+def reconcile_with_base_convergence(
+    list_pulls: Callable[[], list[dict[str, Any]]],
+    processor: Callable[[dict[str, Any]], Any],
+    *,
+    max_passes: int = 100,
+) -> tuple[list[tuple[int, Any, int]], list[tuple[int, str, int]], int]:
+    if not callable(list_pulls) or not callable(processor):
+        raise GovernanceError("convergence reconciler requires callable inputs")
+    if not isinstance(max_passes, int) or max_passes < 1 or max_passes > 1000:
+        raise GovernanceError("max_passes must be an integer from 1 to 1000")
+    results: list[tuple[int, Any, int]] = []
+    failures: list[tuple[int, str, int]] = []
+    merged_numbers: set[int] = set()
+
+    for pass_number in range(1, max_passes + 1):
+        pulls = list_pulls()
+        if not isinstance(pulls, list):
+            raise GovernanceError("list_pulls must return a list")
+        candidates = [
+            pull
+            for pull in pulls
+            if isinstance(pull.get("number"), int)
+            and pull["number"] not in merged_numbers
+        ]
+        if not candidates:
+            return results, failures, pass_number
+
+        base_advanced = False
+        for pull in candidates:
+            number = pull["number"]
+            try:
+                result = processor(pull)
+                results.append((number, result, pass_number))
+                if isinstance(result, dict) and result.get("merged") is True:
+                    merged_numbers.add(number)
+                    base_advanced = True
+                    break
+            except Exception as exc:
+                failures.append((number, str(exc), pass_number))
+
+        if not base_advanced:
+            return results, failures, pass_number
+
+    raise GovernanceError(
+        f"dependency governance convergence exceeded {max_passes} pass(es)"
+    )
+
+
 def event_pull_number(event: dict[str, Any], event_name: str) -> int | None:
     if event_name in {"pull_request_target", "pull_request"}:
         number = (event.get("pull_request") or {}).get("number")
@@ -1052,6 +1440,12 @@ def event_pull_number(event: dict[str, Any], event_name: str) -> int | None:
         if associations and isinstance(associations[0].get("number"), int):
             return associations[0]["number"]
     return None
+
+
+def should_bulk_reconcile(event_name: str, pull_number: int | None) -> bool:
+    return event_name in {"schedule", "push"} or (
+        event_name == "workflow_run" and pull_number is None
+    )
 
 
 def resolve_workflow_run_pull(api: GitHubApi, event: dict[str, Any]) -> int | None:
@@ -1092,35 +1486,56 @@ def main(argv: list[str] | None = None) -> int:
         raise GovernanceError("GITHUB_EVENT_NAME is required")
     event = _read_event()
     api = GitHubApi(token, repository, config["maxPaginationPages"])
+    owner_token = os.environ.get("DEPENDABOT_OWNER_TOKEN", "").strip()
+    owner_api = (
+        GitHubApi(owner_token, repository, config["maxPaginationPages"])
+        if owner_token
+        else None
+    )
     allow_merge = os.environ.get("ALLOW_MERGE") == "true"
-
-    if event_name == "schedule":
-        pulls = api.paginate("/pulls?state=open")
-        dependabot_pulls = [
-            pull
-            for pull in pulls
-            if (pull.get("user") or {}).get("login") == config["botLogin"]
-            and (pull.get("user") or {}).get("id") == config["botUserId"]
-        ]
-        results, failures = reconcile_independently(
-            dependabot_pulls,
-            lambda pull: process_pull(api, pull["number"], config, allow_merge),
-        )
-        print(json.dumps({"reconciled": len(results), "failed": failures}, indent=2))
-        if failures:
-            raise GovernanceError(
-                f"scheduled dependency governance failed for {len(failures)} PR(s)"
-            )
-        return 0
 
     number = event_pull_number(event, event_name)
     if number is None and event_name == "workflow_run":
         number = resolve_workflow_run_pull(api, event)
+
+    if should_bulk_reconcile(event_name, number):
+        def list_dependabot_pulls() -> list[dict[str, Any]]:
+            pulls = api.paginate("/pulls?state=open")
+            return [
+                pull
+                for pull in pulls
+                if (pull.get("user") or {}).get("login") == config["botLogin"]
+                and (pull.get("user") or {}).get("id") == config["botUserId"]
+            ]
+
+        results, failures, passes = reconcile_with_base_convergence(
+            list_dependabot_pulls,
+            lambda pull: process_pull(
+                api, owner_api, pull["number"], config, allow_merge
+            ),
+            max_passes=100,
+        )
+        print(
+            json.dumps(
+                {
+                    "reconciled": len(results),
+                    "passes": passes,
+                    "failed": failures,
+                },
+                indent=2,
+            )
+        )
+        if failures:
+            raise GovernanceError(
+                f"dependency governance failed for {len(failures)} PR attempt(s)"
+            )
+        return 0
+
     if number is None:
         print(f"No pull request resolved for {event_name}; nothing to do.")
         return 0
 
-    result = process_pull(api, number, config, allow_merge)
+    result = process_pull(api, owner_api, number, config, allow_merge)
     print(
         json.dumps(
             {
