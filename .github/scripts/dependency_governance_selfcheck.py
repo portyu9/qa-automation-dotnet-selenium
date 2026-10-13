@@ -124,7 +124,7 @@ class DependencyGovernanceTests(unittest.TestCase):
         self.assertEqual(validate_config(CONFIG), [])
         self.assertTrue(validate_config({**CONFIG, "ownerApprovalRequired": False}))
         bad = json.loads(json.dumps(CONFIG))
-        bad["ecosystems"]["nuget"]["allowedUpdateTypes"].append("version-update:semver-major")
+        bad["ecosystems"]["nuget"]["allowedUpdateTypes"].append("version-update:unknown")
         self.assertTrue(validate_config(bad))
 
     def test_provenance_metadata_and_stale_base_contract(self) -> None:
@@ -170,8 +170,14 @@ class DependencyGovernanceTests(unittest.TestCase):
         major_lock = LOCK_BEFORE.replace("10.0.1", "11.0.0")
         major_meta = [{"name": "coverlet.MTP", "version": "11.0.0",
                        "updateType": "version-update:semver-major"}]
-        self.assertFalse(validate_nuget_semantic_change(
+        valid_major = validate_nuget_semantic_change(
             PROJECT_BEFORE, major_project, LOCK_BEFORE, major_lock, major_meta, CONFIG
+        )
+        self.assertTrue(valid_major["eligible"], valid_major["reasons"])
+        self.assertEqual(valid_major["changes"][0]["risk"], "major")
+        mismatched = [{**major_meta[0], "updateType": "version-update:semver-minor"}]
+        self.assertFalse(validate_nuget_semantic_change(
+            PROJECT_BEFORE, major_project, LOCK_BEFORE, major_lock, mismatched, CONFIG
         )["eligible"])
 
     def test_protected_security_workflow_allows_only_signed_action_pin_change(self) -> None:
