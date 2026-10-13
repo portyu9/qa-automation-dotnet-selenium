@@ -45,7 +45,7 @@ jobs:
             exit 1
           }
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           languages: csharp
           queries: security-extended
@@ -56,7 +56,7 @@ jobs:
         run: dotnet build UiTests.csproj --configuration Release --no-restore
       - name: Analyze
         id: analyze-csharp
-        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           output: reports/security/codeql-csharp
       - name: Enforce zero CodeQL alerts
@@ -65,7 +65,7 @@ jobs:
         run: python3 .github/scripts/validate_codeql_sarif.py "$SARIF_DIR"
       - name: Upload CodeQL SARIF evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: codeql-csharp-sarif-${{ github.run_id }}
           path: reports/security/codeql-csharp/
@@ -92,13 +92,13 @@ jobs:
           python3 .github/scripts/validate_codeql_sarif_selfcheck.py
           python3 .github/scripts/validate_security_stack.py
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           languages: python,actions
           queries: security-extended
       - name: Analyze
         id: analyze-automation
-        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           output: reports/security/codeql-automation
       - name: Enforce zero CodeQL alerts
@@ -107,7 +107,7 @@ jobs:
         run: python3 .github/scripts/validate_codeql_sarif.py "$SARIF_DIR"
       - name: Upload CodeQL SARIF evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: codeql-automation-sarif-${{ github.run_id }}
           path: reports/security/codeql-automation/
@@ -209,7 +209,7 @@ jobs:
           } | tee "$summary" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload security evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: trivy-security-evidence-${{ github.run_id }}
           path: reports/security/
