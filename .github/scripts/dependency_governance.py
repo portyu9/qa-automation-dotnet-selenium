@@ -179,9 +179,9 @@ def validate_config(config: dict[str, Any]) -> list[str]:
         if (
             not isinstance(updates, list)
             or not updates
-            or any("major" in str(update) for update in updates)
+            or any(not re.fullmatch(r"(?:version|security)-update:semver-(?:patch|minor|major)", str(update)) for update in updates)
         ):
-            errors.append("nuget allowedUpdateTypes must exist and never include major updates")
+            errors.append("nuget allowedUpdateTypes must contain canonical semver update classes")
 
     actions = ecosystems.get("github-actions")
     if not isinstance(actions, dict):
@@ -707,12 +707,14 @@ def validate_nuget_semantic_change(
             if str(update_type).endswith("semver-patch")
             else "minor"
             if str(update_type).endswith("semver-minor")
+            else "major"
+            if str(update_type).endswith("semver-major")
             else None
         )
-        if risk not in {"patch", "minor"}:
+        if risk not in {"patch", "minor", "major", "major-risk"}:
             reasons.append(f"{name} NuGet transition is {risk}")
             continue
-        if signed_risk != risk:
+        if signed_risk != ("minor" if risk == "major-risk" else risk):
             reasons.append(
                 f"{name} signed Dependabot update class {signed_risk or 'unknown'} contradicts "
                 f"project transition {risk}"
@@ -1094,7 +1096,7 @@ def render_comment(
             "> Safety invariant: privileged governance executes only trusted default-branch code, "
             "requires an untouched GitHub-signed Dependabot commit directly on current main, proves "
             "exact workflow identities and stable gates for the exact head, never rewrites Dependabot "
-            "branches directly, and never autonomously merges major, downgrade, stale-base, aged-out, "
+            "branches directly, and never autonomously merges downgrade, stale-base, aged-out, "
             "control-plane, or semantically ambiguous changes.",
             "",
         ]
