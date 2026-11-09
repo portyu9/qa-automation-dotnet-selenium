@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import copy
 import json
+import re
+import subprocess
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -245,6 +248,68 @@ class DependencyGovernanceTests(unittest.TestCase):
         self.assertGreaterEqual(passes, 2)
         self.assertEqual(visits, [1, 2])
 
+    def test_canonical_workflow_run_wake_predicate(self) -> None:
+        """Execute the *production jq filter* against both trusted and forged runs."""
+        workflow = (ROOT / ".github" / "workflows" / "dependency-governance.yml").read_text(
+            encoding="utf-8"
+        )
+        match = re.search(
+            r'jq -e --arg repo "\$GITHUB_REPOSITORY" \'\n(?P<filter>.*?)\n\s+\' >/dev/null',
+            workflow,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(match, "trusted production workflow_run predicate missing")
+        assert match is not None
+        jq_filter = match.group("filter")
+        repository = "fixture/repository"
+
+        def qualify(payload: dict) -> bool:
+            completed = subprocess.run(
+                ["jq", "-e", "--arg", "repo", repository, jq_filter],
+                input=json.dumps(payload),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            return completed.returncode == 0
+
+        for name, path in (
+            ("ci", ".github/workflows/ci.yml"),
+            ("extended", ".github/workflows/extended.yml"),
+            ("security", ".github/workflows/security.yml"),
+            ("docs", ".github/workflows/docs.yml"),
+        ):
+            canonical = {
+                "name": name,
+                "path": path,
+                "status": "completed",
+                "conclusion": "success",
+                "event": "pull_request",
+                "head_branch": "dependabot/nuget/routine-dependencies",
+                "repository": {"full_name": repository},
+                "head_repository": {"full_name": repository},
+            }
+            self.assertTrue(qualify(canonical), f"authentic {name} event rejected")
+            for label, corrupt in (
+                ("foreign repo", {"repository": {"full_name": "attacker/repo"}}),
+                ("fork source", {"head_repository": {"full_name": "attacker/repo"}}),
+                ("foreign event", {"event": "push"}),
+                ("not yet completed", {"status": "in_progress"}),
+                ("failed", {"conclusion": "failure"}),
+                ("skipped", {"conclusion": "skipped"}),
+                ("nonbot branch", {"head_branch": "feature/untrusted"}),
+                ("impostor workflow", {"name": "github-owner-looking-name"}),
+                ("wrong workflow file", {"path": ".github/workflows/not-ci.yml"}),
+                ("mismatched identity", {"path": ".github/workflows/ci.yml" if name != "ci" else ".github/workflows/security.yml"}),
+                ("missing source", {"head_repository": None}),
+            ):
+                bad = copy.deepcopy(canonical)
+                bad.update(corrupt)
+                self.assertFalse(
+                    qualify(bad),
+                    f"trusted {name} workflow_run predicate admitted {label}",
+                )
+
     def test_privileged_workflow_wiring(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "dependency-governance.yml").read_text(encoding="utf-8")
         self.assertIn("push:", workflow)
@@ -254,6 +319,26 @@ class DependencyGovernanceTests(unittest.TestCase):
         self.assertIn("statuses: read", workflow)
         self.assertIn("ref: $" + "{{ github.event.repository.default_branch }}", workflow)
         self.assertIn("'reconcile' }}", workflow)
+        # Public GitHub repositories block privileged pull_request_target by
+        # default from 2026-12-02. Signed bot wakes must remain independently
+        # authenticated trusted-main workflow_run completions instead.
+        self.assertNotRegex(workflow, r"(?m)^\s*pull_request_target:")
+        self.assertIn("workflows: [ci, extended, security, docs]", workflow)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", workflow)
+        self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", workflow)
+        self.assertIn("github.ref == 'refs/heads/main'", workflow)
+        self.assertIn("Authenticate exact-current-main privileged wake", workflow)
+        self.assertIn('test "$live_main" = "$GITHUB_SHA"', workflow)
+        self.assertIn('(.name == "security" and .path == ".github/workflows/security.yml")', workflow)
+        self.assertIn('(.name == "ci" and .path == ".github/workflows/ci.yml")', workflow)
+        self.assertLess(
+            workflow.index("Authenticate exact-current-main privileged wake"),
+            workflow.index("Checkout trusted default-branch governance code only"),
+        )
+        self.assertLess(
+            workflow.index("Checkout trusted default-branch governance code only"),
+            workflow.index("DEPENDABOT_OWNER_TOKEN:"),
+        )
         self.assertNotRegex(workflow, r"ref:\s*\$\{\{\s*github\.event\.pull_request\.head")
 
 
