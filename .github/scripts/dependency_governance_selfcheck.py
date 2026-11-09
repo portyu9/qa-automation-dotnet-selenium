@@ -254,6 +254,26 @@ class DependencyGovernanceTests(unittest.TestCase):
         self.assertIn("statuses: read", workflow)
         self.assertIn("ref: $" + "{{ github.event.repository.default_branch }}", workflow)
         self.assertIn("'reconcile' }}", workflow)
+        # Public GitHub repositories block privileged pull_request_target by
+        # default from 2026-12-02. Signed bot wakes must remain independently
+        # authenticated trusted-main workflow_run completions instead.
+        self.assertNotRegex(workflow, r"(?m)^\s*pull_request_target:")
+        self.assertIn("workflows: [ci, extended, security, docs]", workflow)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", workflow)
+        self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", workflow)
+        self.assertIn("github.ref == 'refs/heads/main'", workflow)
+        self.assertIn("Authenticate exact-current-main privileged wake", workflow)
+        self.assertIn('test "$live_main" = "$GITHUB_SHA"', workflow)
+        self.assertIn('(.name == "security" and .path == ".github/workflows/security.yml")', workflow)
+        self.assertIn('(.name == "ci" and .path == ".github/workflows/ci.yml")', workflow)
+        self.assertLess(
+            workflow.index("Authenticate exact-current-main privileged wake"),
+            workflow.index("Checkout trusted default-branch governance code only"),
+        )
+        self.assertLess(
+            workflow.index("Checkout trusted default-branch governance code only"),
+            workflow.index("DEPENDABOT_OWNER_TOKEN:"),
+        )
         self.assertNotRegex(workflow, r"ref:\s*\$\{\{\s*github\.event\.pull_request\.head")
 
 
