@@ -332,7 +332,30 @@ class DependencyGovernanceTests(unittest.TestCase):
         self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", workflow)
         self.assertIn("github.ref == 'refs/heads/main'", workflow)
         self.assertIn("Authenticate exact-current-main privileged wake", workflow)
-        self.assertIn('test "$live_main" = "$GITHUB_SHA"', workflow)
+        # An obsolete workflow wake is expected during simultaneous bot merges.
+        # It must be an explicit no-op; it cannot cross the privileged boundary.
+        self.assertIn('if [[ "$live_main" != "$GITHUB_SHA" ]]; then', workflow)
+        self.assertIn('echo "trusted=false" >> "$GITHUB_OUTPUT"', workflow)
+        self.assertIn('echo "trusted=true" >> "$GITHUB_OUTPUT"', workflow)
+        self.assertLess(
+            workflow.index('echo "trusted=false" >> "$GITHUB_OUTPUT"'),
+            workflow.index('echo "trusted=true" >> "$GITHUB_OUTPUT"'),
+        )
+        self.assertEqual(workflow.count("steps.current_main.outputs.trusted == 'true'"), 5)
+        for step in (
+            "Checkout trusted default-branch governance code only",
+            "Set up Python",
+            "Validate trusted governance and recovery configuration",
+            "Reconcile dependency governance",
+        ):
+            self.assertIn(
+                f"- name: {step}\\n        if: steps.current_main.outputs.trusted == 'true'",
+                workflow,
+            )
+        self.assertIn(
+            "if: steps.current_main.outputs.trusted == 'true' && github.event_name != 'push'",
+            workflow,
+        )
         self.assertIn('(.name == "security" and .path == ".github/workflows/security.yml")', workflow)
         self.assertIn('(.name == "ci" and .path == ".github/workflows/ci.yml")', workflow)
         self.assertLess(
