@@ -349,7 +349,7 @@ class DependencyGovernanceTests(unittest.TestCase):
             "Reconcile dependency governance",
         ):
             self.assertIn(
-                f"- name: {step}\\n        if: steps.current_main.outputs.trusted == 'true'",
+                f"- name: {step}\n        if: steps.current_main.outputs.trusted == 'true'",
                 workflow,
             )
         self.assertIn(
