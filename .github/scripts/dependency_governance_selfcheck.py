@@ -247,7 +247,7 @@ class DependencyGovernanceTests(unittest.TestCase):
         owner = OwnerApi()
         self.assertTrue(request_dependabot_refresh(owner, assessment, CONFIG, observed_at=start))
         self.assertEqual(len(owner.comments), 1)
-        self.assertTrue(owner.comments[0]["body"].startswith("@dependabot rebase\\n"))
+        self.assertTrue(owner.comments[0]["body"].startswith("@dependabot rebase\n"))
         owner.comments[0]["created_at"] = start.isoformat()
         lease = timedelta(minutes=CONFIG["nativeRefreshEscalationMinutes"])
         self.assertTrue(request_dependabot_refresh(
@@ -258,7 +258,7 @@ class DependencyGovernanceTests(unittest.TestCase):
             owner, assessment, CONFIG, observed_at=start + lease
         ))
         self.assertEqual(len(owner.comments), 2)
-        self.assertTrue(owner.comments[1]["body"].startswith("@dependabot recreate\\n"))
+        self.assertTrue(owner.comments[1]["body"].startswith("@dependabot recreate\n"))
         self.assertIn(head, owner.comments[1]["body"])
         self.assertIn(assessment.base_sha, owner.comments[1]["body"])
         self.assertTrue(request_dependabot_refresh(
@@ -272,7 +272,7 @@ class DependencyGovernanceTests(unittest.TestCase):
             owner, assessment, CONFIG, observed_at=start + lease
         ))
         self.assertEqual(len(owner.comments), 3)
-        self.assertTrue(owner.comments[-1]["body"].startswith("@dependabot rebase\\n"))
+        self.assertTrue(owner.comments[-1]["body"].startswith("@dependabot rebase\n"))
         assessment.pull["head"]["sha"] = old_head
 
         for bad_timestamp in ("invalid", "2100-01-01T00:00:00Z"):
@@ -290,7 +290,7 @@ class DependencyGovernanceTests(unittest.TestCase):
         })
         request_dependabot_refresh(attacker, assessment, CONFIG, observed_at=start + lease)
         self.assertEqual(len(attacker.comments), 2)
-        self.assertTrue(attacker.comments[-1]["body"].startswith("@dependabot rebase\\n"))
+        self.assertTrue(attacker.comments[-1]["body"].startswith("@dependabot rebase\n"))
 
         with self.assertRaises(GovernanceError):
             request_dependabot_refresh(
