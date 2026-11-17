@@ -8,7 +8,7 @@ import re
 import subprocess
 import unittest
 import urllib.error
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -129,6 +129,8 @@ class OwnerApi:
 class DependencyGovernanceTests(unittest.TestCase):
     def test_config_is_owner_bound_and_rejects_major_policy(self) -> None:
         self.assertEqual(validate_config(CONFIG), [])
+        for invalid in (None, False, 0, 29, "30", 1441, 30.5):
+            self.assertTrue(validate_config({**CONFIG, "nativeRefreshEscalationMinutes": invalid}))
         self.assertTrue(validate_config({**CONFIG, "ownerApprovalRequired": False}))
         bad = json.loads(json.dumps(CONFIG))
         bad["ecosystems"]["nuget"]["allowedUpdateTypes"].append("version-update:unknown")
@@ -232,6 +234,73 @@ class DependencyGovernanceTests(unittest.TestCase):
         self.assertTrue(has_exact_owner_approval(owner, pull["number"], head, CONFIG))
         with self.assertRaises(GovernanceError):
             ensure_owner_review_and_approval(OwnerApi("github-actions[bot]", 41898282), qualified, CONFIG)
+
+    def test_stale_bot_refresh_escalates_once_at_exact_expiry_and_fails_closed(self) -> None:
+        _, head, pull, commit = canonical_fixture()
+        start = datetime(2026, 10, 4, 12, tzinfo=timezone.utc)
+        stale = validate_provenance(pull, [commit], "c" * 40, CONFIG, now=start)
+        assessment = Assessment(
+            pull, "c" * 40, [{"filename": "UiTests.csproj"}], "nuget", stale,
+            {"eligible": True, "reasons": [], "metadata": SIGNED_NUGET},
+            {"eligible": False, "reasons": [], "changes": []}, None,
+        )
+        owner = OwnerApi()
+        self.assertTrue(request_dependabot_refresh(owner, assessment, CONFIG, observed_at=start))
+        self.assertEqual(len(owner.comments), 1)
+        self.assertTrue(owner.comments[0]["body"].startswith("@dependabot rebase\\n"))
+        owner.comments[0]["created_at"] = start.isoformat()
+        lease = timedelta(minutes=CONFIG["nativeRefreshEscalationMinutes"])
+        self.assertTrue(request_dependabot_refresh(
+            owner, assessment, CONFIG, observed_at=start + lease - timedelta(microseconds=1)
+        ))
+        self.assertEqual(len(owner.comments), 1)
+        self.assertTrue(request_dependabot_refresh(
+            owner, assessment, CONFIG, observed_at=start + lease
+        ))
+        self.assertEqual(len(owner.comments), 2)
+        self.assertTrue(owner.comments[1]["body"].startswith("@dependabot recreate\\n"))
+        self.assertIn(head, owner.comments[1]["body"])
+        self.assertIn(assessment.base_sha, owner.comments[1]["body"])
+        self.assertTrue(request_dependabot_refresh(
+            owner, assessment, CONFIG, observed_at=start + timedelta(days=1)
+        ))
+        self.assertEqual(len(owner.comments), 2, "duplicate native recreate forbidden")
+
+        old_head = assessment.pull["head"]["sha"]
+        assessment.pull["head"]["sha"] = "d" * 40
+        self.assertTrue(request_dependabot_refresh(
+            owner, assessment, CONFIG, observed_at=start + lease
+        ))
+        self.assertEqual(len(owner.comments), 3)
+        self.assertTrue(owner.comments[-1]["body"].startswith("@dependabot rebase\\n"))
+        assessment.pull["head"]["sha"] = old_head
+
+        for bad_timestamp in ("invalid", "2100-01-01T00:00:00Z"):
+            invalid = OwnerApi()
+            request_dependabot_refresh(invalid, assessment, CONFIG, observed_at=start)
+            invalid.comments[0]["created_at"] = bad_timestamp
+            request_dependabot_refresh(invalid, assessment, CONFIG, observed_at=start + lease)
+            self.assertEqual(len(invalid.comments), 1)
+
+        attacker = OwnerApi()
+        attacker.comments.append({
+            "body": owner.comments[0]["body"],
+            "created_at": start.isoformat(),
+            "user": {"login": "spoofed", "id": 1},
+        })
+        request_dependabot_refresh(attacker, assessment, CONFIG, observed_at=start + lease)
+        self.assertEqual(len(attacker.comments), 2)
+        self.assertTrue(attacker.comments[-1]["body"].startswith("@dependabot rebase\\n"))
+
+        with self.assertRaises(GovernanceError):
+            request_dependabot_refresh(
+                owner, assessment, CONFIG, observed_at=datetime(2026, 10, 4, 12)
+            )
+        disallowed = copy.deepcopy(assessment)
+        disallowed.provenance["reasons"].append("invalid bot signature")
+        self.assertFalse(request_dependabot_refresh(
+            owner, disallowed, CONFIG, observed_at=start + lease
+        ))
 
     def test_base_convergence_revisits_remaining_pr_after_merge(self) -> None:
         state = {"merged": False}
