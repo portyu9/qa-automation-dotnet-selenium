@@ -1286,8 +1286,8 @@ def request_dependabot_refresh(
     owner_api.post(
         f"/issues/{number}/comments",
         {"body": (
-            f"@dependabot {command}\\n\\n"
-            f"{marker(command)}\\n"
+            f"@dependabot {command}\n\n"
+            f"{marker(command)}\n"
             "Owner-authenticated native refresh against accepted main. Recreate is permitted "
             "only after the configured rebase lease expires without a new signed Dependabot head. "
             "Any replacement requires fresh canonical provenance and exact-head CI, extended, "
