@@ -27,6 +27,7 @@ from dependency_governance import (
     validate_nuget_semantic_change,
     validate_provenance,
     validate_signed_metadata,
+    verify_scheduled_owner_readiness,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -127,6 +128,34 @@ class OwnerApi:
 
 
 class DependencyGovernanceTests(unittest.TestCase):
+    def test_idle_schedule_owner_token_readiness_requires_exact_identity(self) -> None:
+        owner = OwnerApi(CONFIG["ownerApprovalLogin"], CONFIG["ownerApprovalUserId"])
+        self.assertEqual(
+            verify_scheduled_owner_readiness("schedule", owner, CONFIG),
+            {"checked": True, "identity": "verified"},
+        )
+        with self.assertRaisesRegex(GovernanceError, "DEPENDABOT_OWNER_TOKEN is required"):
+            verify_scheduled_owner_readiness("schedule", None, CONFIG)
+        wrong = OwnerApi(CONFIG["ownerApprovalLogin"], CONFIG["ownerApprovalUserId"] + 1)
+        with self.assertRaisesRegex(GovernanceError, "configured repository owner identity"):
+            verify_scheduled_owner_readiness("schedule", wrong, CONFIG)
+        with (
+            patch.object(owner, "get", side_effect=GovernanceError("expired owner token")),
+            self.assertRaisesRegex(GovernanceError, "expired owner token"),
+        ):
+            verify_scheduled_owner_readiness("schedule", owner, CONFIG)
+
+    def test_non_schedule_events_preserve_owner_authentication_contracts(self) -> None:
+        class Unexpected:
+            def get(self, path: str) -> dict:
+                raise AssertionError(f"unexpected owner probe: {path}")
+
+        for event in ("push", "workflow_run", "workflow_dispatch", "pull_request_target"):
+            self.assertEqual(
+                verify_scheduled_owner_readiness(event, Unexpected(), CONFIG),
+                {"checked": False},
+            )
+
     def test_config_is_owner_bound_and_rejects_major_policy(self) -> None:
         self.assertEqual(validate_config(CONFIG), [])
         for invalid in (None, False, 0, 29, "30", 1441, 30.5):
