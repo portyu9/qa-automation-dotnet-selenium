@@ -1164,6 +1164,16 @@ def verify_owner_identity(owner_api: GitHubApi | None, config: dict[str, Any]) -
         )
 
 
+def verify_scheduled_owner_readiness(
+    event_name: str, owner_api: GitHubApi | None, config: dict[str, Any]
+) -> dict[str, Any]:
+    """Scheduled empty-PR runs must authenticate the configured repository owner."""
+    if event_name != "schedule":
+        return {"checked": False}
+    verify_owner_identity(owner_api, config)
+    return {"checked": True, "identity": "verified"}
+
+
 def has_exact_owner_approval(
     owner_api: GitHubApi, number: int, head_sha: str, config: dict[str, Any]
 ) -> bool:
@@ -1553,6 +1563,7 @@ def main(argv: list[str] | None = None) -> int:
         number = resolve_workflow_run_pull(api, event)
 
     if should_bulk_reconcile(event_name, number):
+        owner_readiness = verify_scheduled_owner_readiness(event_name, owner_api, config)
         def list_dependabot_pulls() -> list[dict[str, Any]]:
             pulls = api.paginate("/pulls?state=open")
             return [
@@ -1575,6 +1586,7 @@ def main(argv: list[str] | None = None) -> int:
                     "reconciled": len(results),
                     "passes": passes,
                     "failed": failures,
+                    "ownerReadiness": owner_readiness,
                 },
                 indent=2,
             )
